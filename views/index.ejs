@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>АгроМир - Главная</title>
+    <link rel="stylesheet" href="/styles/main.css">
+    <!-- Подключаем шрифты Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;700&family=Roboto:wght@300;400&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div class="background"></div> <!-- Фон с растениями -->
+    <header>
+        <h1>АгроМир</h1>
+        <p>Всё для вашего сада и огорода</p>
+    </header>
+
+    <section class="hero">
+        <h2>Добро пожаловать в АгроМир!</h2>
+        <p>Экологичные решения для вашего сада</p>
+    </section>
+
+    <div class="container">
+        <div class="auth-box" id="auth-box">
+            <!-- Форма входа -->
+            <div id="login-form">
+                <h2>Вход</h2>
+                <form action="/login" method="POST">
+                    <input type="email" name="email" placeholder="Электронная почта" required>
+                    <input type="password" name="password" placeholder="Пароль" required>
+                    <button type="submit">Войти</button>
+                </form>
+                <p>Нет аккаунта? <span class="toggle-link" onclick="showRegister()">Зарегистрируйтесь</span></p>
+            </div>
+
+            <!-- Форма регистрации -->
+            <div id="register-form" style="display: none;">
+                <h2>Регистрация</h2>
+                <form action="/register" method="POST">
+                    <input type="text" name="username" placeholder="Имя пользователя" required>
+                    <input type="email" name="email" placeholder="Электронная почта" required>
+                    <input type="password" name="password" placeholder="Пароль" required>
+                    <button type="submit">Зарегистрироваться</button>
+                </form>
+                <p>Уже есть аккаунт? <span class="toggle-link" onclick="showLogin()">Войдите</span></p>
+            </div>
+        </div>
+    </div>
+
+    <footer>
+        <p>© 2025 АгроМир. Все права защищены.</p>
+    </footer>
+
+    <script>
+        function showRegister() {
+            document.getElementById('login-form').style.display = 'none';
+            document.getElementById('register-form').style.display = 'block';
+        }
+
+        function showLogin() {
+            document.getElementById('register-form').style.display = 'none';
+            document.getElementById('login-form').style.display = 'block';
+        }
+    </script>
+</body>
+</html>

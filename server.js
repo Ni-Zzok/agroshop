@@ -1,17 +1,22 @@
 const express = require('express');
-const path = require('path');
-const cookieParser = require('cookie-parser');
-
 const app = express();
-app.use(express.urlencoded({ extended: true }));
-app.use(cookieParser());
-app.set('view engine', 'ejs');
-app.use(express.static('./'));
+const path = require('path');
 
-// Настройка пути к представлениям
+// Настройка EJS как шаблонизатора
+app.set('view engine', 'ejs');
 app.set('views', path.join(__dirname, 'views'));
 
+// Подключение статических файлов (CSS, изображения и т.д.)
+app.use(express.static(path.join(__dirname, 'public')));
+app.use(express.urlencoded({ extended: true }));
 
-// Вызов функции для проверки подключения
+// Маршрут для главной страницы
+app.get('/', (req, res) => {
+    res.render('index');
+});
+
+// Запуск сервера
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+app.listen(PORT, () => {
+    console.log(`Server is running on port ${PORT}`);
+});
