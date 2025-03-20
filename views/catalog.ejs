@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>АгроМир - Каталог товаров</title>
+    <link rel="stylesheet" href="/styles/main.css">
+    <link rel="stylesheet" href="/styles/catalog.css">
+    <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;700&family=Roboto:wght@300;400&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div class="background"></div>
+
+    <header>
+        <div class="auth-section">
+            <div class="auth-buttons">
+                <button class="auth-btn" onclick="window.location.href='/login'">Войти</button>
+                <button class="auth-btn" onclick="window.location.href='/register'">Зарегистрироваться</button>
+            </div>
+        </div>
+    </header>
+
+    <nav class="sidebar">
+        <img src="/logo.png" alt="Логотип АгроМир" class="logo">
+        <ul>
+            <li><a href="/">Главная</a></li>
+            <li><a href="/catalog">Каталог товаров</a></li>
+            <li><a href="/cart">Корзина</a></li>
+            <li><a href="/profile">Личный кабинет</a></li>
+        </ul>
+    </nav>
+
+    <main class="content">
+        <h1 class="page-title">Каталог товаров</h1>
+        <!-- Поисковая строка -->
+        <div class="search-bar">
+            <input type="text" placeholder="Поиск товаров..." class="search-input">
+            <button class="search-btn">Найти</button>
+        </div>
+
+        <!-- Параметры сортировки -->
+        <div class="sort-options">
+            <label for="sort">Сортировать по:</label>
+            <select id="sort" class="sort-select">
+                <option value="price-asc">Цена: по возрастанию</option>
+                <option value="price-desc">Цена: по убыванию</option>
+                <option value="name">Название</option>
+            </select>
+        </div>
+
+        <!-- Таблица с товарами (динамически генерируемый список) -->
+        <div class="product-table">
+            <% let products = [
+                { id: 13326, name: "Огурец Сюрприз F1", article: "13326", description: "Огурец Сюрприз F1", price: 23, image: "https://via.placeholder.com/100x150?text=Огурец+Сюрприз" },
+                { id: 22420, name: "Щавель Широколистный", article: "22420", description: "Щавель Широколистный", price: 17.53, image: "https://via.placeholder.com/100x150?text=Щавель+Широколистный" },
+                { id: 41047, name: "Агератум Голубой", article: "41047", description: "Агератум Голубой", price: 42.19, image: "https://via.placeholder.com/100x150?text=Агератум+Голубой" }
+            ]; %>
+            <% products.forEach(product => { %>
+                <div class="product-item">
+                    <img src="<%= product.image %>" alt="<%= product.name %>">
+                    <div class="product-details">
+                        <h3><%= product.name %></h3>
+                        <p>Артикул: <%= product.article %><br><%= product.description %><br>Характеристики: ...</p>
+                    </div>
+                    <div class="price-container">
+                        <p class="price"><%= product.price %> руб./шт</p>
+                    </div>
+                    <div class="product-actions">
+                        <input type="number" value="10" min="1" class="quantity-input">
+                        <button class="add-to-cart-btn">В корзину</button>
+                    </div>
+                </div>
+            <% }); %>
+        </div>
+    </main>
+
+    <footer>
+        <p>© 2025 АгроМир. Все права защищены.</p>
+    </footer>
+</body>
+</html>

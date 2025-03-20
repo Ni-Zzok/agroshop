@@ -1,0 +1,38 @@
+/* Геройская секция */
+.hero {
+    padding: 80px 20px;
+    text-align: center;
+    color: #fff;
+    text-shadow: 1px 1px 3px rgba(0, 0, 0, 0.7);
+}
+
+.hero h2 {
+    font-family: 'Playfair Display', serif;
+    font-size: 3em;
+    margin: 0 0 10px;
+}
+
+.hero p {
+    font-size: 1.4em;
+}
+
+/* Контейнеры с информацией */
+.info-container {
+    background: rgba(255, 255, 255, 0.9);
+    padding: 20px;
+    margin: 20px 0;
+    border-radius: 8px;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+    color: #2f4f2f;
+}
+
+.info-container h3 {
+    font-family: 'Playfair Display', serif;
+    font-size: 1.8em;
+    margin-top: 0;
+}
+
+.info-container p {
+    font-size: 1.1em;
+    line-height: 1.6;
+}

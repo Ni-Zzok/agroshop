@@ -10,9 +10,21 @@ app.set('views', path.join(__dirname, 'views'));
 app.use(express.static(path.join(__dirname, 'public')));
 app.use(express.urlencoded({ extended: true }));
 
-// Маршрут для главной страницы
+// Маршруты
 app.get('/', (req, res) => {
     res.render('index');
+});
+
+app.get('/catalog', (req, res) => {
+    res.render('catalog');
+});
+
+app.get('/cart', (req, res) => {
+    res.render('cart');
+});
+
+app.get('/profile', (req, res) => {
+    res.render('profile');
 });
 
 // Запуск сервера

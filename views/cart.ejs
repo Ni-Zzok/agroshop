@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>АгроМир - Корзина</title>
+    <link rel="stylesheet" href="/styles/main.css">
+    <link rel="stylesheet" href="/styles/cart.css">
+    <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;700&family=Roboto:wght@300;400&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div class="background"></div>
+
+    <header>
+        <div class="auth-section">
+            <div class="auth-buttons">
+                <button class="auth-btn" onclick="window.location.href='/login'">Войти</button>
+                <button class="auth-btn" onclick="window.location.href='/register'">Зарегистрироваться</button>
+            </div>
+        </div>
+    </header>
+
+    <nav class="sidebar">
+        <img src="/logo.png" alt="Логотип АгроМир" class="logo">
+        <ul>
+            <li><a href="/">Главная</a></li>
+            <li><a href="/catalog">Каталог товаров</a></li>
+            <li><a href="/cart">Корзина</a></li>
+            <li><a href="/profile">Личный кабинет</a></li>
+        </ul>
+    </nav>
+
+    <main class="content">
+        <h1 class="page-title">Корзина</h1>
+        <!-- Список товаров в корзине -->
+        <div class="cart-table">
+            <% let cartItems = [
+                { id: 13326, name: "Огурец Сюрприз F1", price: 23, quantity: 2, image: "https://via.placeholder.com/100x150?text=Огурец+Сюрприз" },
+                { id: 22420, name: "Щавель Широколистный", price: 17.53, quantity: 1, image: "https://via.placeholder.com/100x150?text=Щавель+Широколистный" },
+                { id: 41047, name: "Агератум Голубой", price: 42.19, quantity: 3, image: "https://via.placeholder.com/100x150?text=Агератум+Голубой" }
+            ]; %>
+            <% if (cartItems.length === 0) { %>
+                <p class="empty-cart">Корзина пуста</p>
+            <% } else { %>
+                <% cartItems.forEach(item => { %>
+                    <div class="cart-item">
+                        <img src="<%= item.image %>" alt="<%= item.name %>" class="cart-image">
+                        <div class="cart-details">
+                            <h3><%= item.name %></h3>
+                        </div>
+                        <div class="cart-quantity">
+                            <input type="number" value="<%= item.quantity %>" min="1" class="quantity-input">
+                        </div>
+                        <div class="cart-price">
+                            <p class="price"><%= (item.price * item.quantity).toFixed(2) %> руб.</p>
+                        </div>
+                        <div class="cart-actions">
+                            <button class="remove-btn">Удалить</button>
+                        </div>
+                    </div>
+                <% }); %>
+            <% } %>
+        </div>
+
+        <!-- Общая стоимость корзины -->
+        <% if (cartItems.length > 0) { %>
+            <div class="total-container">
+                <h3>Общая стоимость: <span class="total-price">
+                    <% let total = cartItems.reduce((sum, item) => sum + (item.price * item.quantity), 0).toFixed(2); %>
+                    <%= total %> руб.
+                </span></h3>
+            </div>
+            <div class="checkout-container">
+                <button class="checkout-btn" onclick="window.location.href='/checkout'">Оформить заказ</button>
+            </div>
+        <% } %>
+    </main>
+
+    <footer>
+        <p>© 2025 АгроМир. Все права защищены.</p>
+    </footer>
+</body>
+</html>

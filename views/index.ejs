@@ -5,62 +5,57 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>АгроМир - Главная</title>
     <link rel="stylesheet" href="/styles/main.css">
-    <!-- Подключаем шрифты Google Fonts -->
+    <link rel="stylesheet" href="/styles/index.css">
     <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;700&family=Roboto:wght@300;400&display=swap" rel="stylesheet">
 </head>
 <body>
-    <div class="background"></div> <!-- Фон с растениями -->
+    <div class="background"></div>
+
     <header>
-        <h1>АгроМир</h1>
-        <p>Всё для вашего сада и огорода</p>
-    </header>
-
-    <section class="hero">
-        <h2>Добро пожаловать в АгроМир!</h2>
-        <p>Экологичные решения для вашего сада</p>
-    </section>
-
-    <div class="container">
-        <div class="auth-box" id="auth-box">
-            <!-- Форма входа -->
-            <div id="login-form">
-                <h2>Вход</h2>
-                <form action="/login" method="POST">
-                    <input type="email" name="email" placeholder="Электронная почта" required>
-                    <input type="password" name="password" placeholder="Пароль" required>
-                    <button type="submit">Войти</button>
-                </form>
-                <p>Нет аккаунта? <span class="toggle-link" onclick="showRegister()">Зарегистрируйтесь</span></p>
-            </div>
-
-            <!-- Форма регистрации -->
-            <div id="register-form" style="display: none;">
-                <h2>Регистрация</h2>
-                <form action="/register" method="POST">
-                    <input type="text" name="username" placeholder="Имя пользователя" required>
-                    <input type="email" name="email" placeholder="Электронная почта" required>
-                    <input type="password" name="password" placeholder="Пароль" required>
-                    <button type="submit">Зарегистрироваться</button>
-                </form>
-                <p>Уже есть аккаунт? <span class="toggle-link" onclick="showLogin()">Войдите</span></p>
+        <div class="auth-section">
+            <div class="auth-buttons">
+                <button class="auth-btn" onclick="window.location.href='/login'">Войти</button>
+                <button class="auth-btn" onclick="window.location.href='/register'">Зарегистрироваться</button>
             </div>
         </div>
-    </div>
+    </header>
+
+    <nav class="sidebar">
+        <img src="/logo.png" alt="Логотип АгроМир" class="logo">
+        <ul>
+            <li><a href="/">Главная</a></li>
+            <li><a href="/catalog">Каталог товаров</a></li>
+            <li><a href="/cart">Корзина</a></li>
+            <li><a href="/profile">Личный кабинет</a></li>
+        </ul>
+    </nav>
+
+    <main class="content">
+        <h1 class="page-title">Главная</h1>
+        <section class="hero">
+            <h2>Добро пожаловать в АгроМир!</h2>
+            <p>Экологичные решения для вашего сада</p>
+        </section>
+
+        <!-- Контейнеры с текстом-заполнителем -->
+        <div class="info-container">
+            <h3>О нашем магазине</h3>
+            <p>Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.</p>
+        </div>
+
+        <div class="info-container">
+            <h3>Наши преимущества</h3>
+            <p>Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat.</p>
+        </div>
+
+        <div class="info-container">
+            <h3>Свяжитесь с нами</h3>
+            <p>Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur.</p>
+        </div>
+    </main>
 
     <footer>
         <p>© 2025 АгроМир. Все права защищены.</p>
     </footer>
-
-    <script>
-        function showRegister() {
-            document.getElementById('login-form').style.display = 'none';
-            document.getElementById('register-form').style.display = 'block';
-        }
-
-        function showLogin() {
-            document.getElementById('register-form').style.display = 'none';
-            document.getElementById('login-form').style.display = 'block';
-        }
-    </script>
 </body>
 </html>
