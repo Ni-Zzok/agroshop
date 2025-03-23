@@ -13,10 +13,15 @@
 
     <header>
         <div class="auth-section">
-            <div class="auth-buttons">
-                <button class="auth-btn" onclick="window.location.href='/login'">Войти</button>
-                <button class="auth-btn" onclick="window.location.href='/register'">Зарегистрироваться</button>
-            </div>
+            <% if (user) { %>
+                <div class="user-profile">
+                    <img src="<%= user.avatar_url || 'https://via.placeholder.com/30x30?text=Avatar' %>" alt="Аватар" class="avatar">
+                    <span><%= user.email %></span>
+                    <button class="logout-btn" onclick="window.location.href='/logout'">Выйти</button>
+                </div>
+            <% } else { %>
+                <a href="/login">Вход</a> | <a href="/register">Регистрация</a>
+            <% } %>
         </div>
     </header>
 
@@ -32,37 +37,30 @@
 
     <main class="content">
         <h1 class="page-title">Корзина</h1>
-        <!-- Список товаров в корзине -->
         <div class="cart-table">
-            <% let cartItems = [
-                { id: 13326, name: "Огурец Сюрприз F1", price: 23, quantity: 2, image: "https://via.placeholder.com/100x150?text=Огурец+Сюрприз" },
-                { id: 22420, name: "Щавель Широколистный", price: 17.53, quantity: 1, image: "https://via.placeholder.com/100x150?text=Щавель+Широколистный" },
-                { id: 41047, name: "Агератум Голубой", price: 42.19, quantity: 3, image: "https://via.placeholder.com/100x150?text=Агератум+Голубой" }
-            ]; %>
             <% if (cartItems.length === 0) { %>
                 <p class="empty-cart">Корзина пуста</p>
             <% } else { %>
                 <% cartItems.forEach(item => { %>
                     <div class="cart-item">
-                        <img src="<%= item.image %>" alt="<%= item.name %>" class="cart-image">
+                        <img src="<%= item.image_url %>" alt="<%= item.name %>" class="cart-image">
                         <div class="cart-details">
                             <h3><%= item.name %></h3>
                         </div>
                         <div class="cart-quantity">
-                            <input type="number" value="<%= item.quantity %>" min="1" class="quantity-input">
+                            <input type="number" value="<%= item.quantity %>" min="1" class="quantity-input" data-id="<%= item.id %>">
                         </div>
                         <div class="cart-price">
                             <p class="price"><%= (item.price * item.quantity).toFixed(2) %> руб.</p>
                         </div>
                         <div class="cart-actions">
-                            <button class="remove-btn">Удалить</button>
+                            <button class="remove-btn" data-id="<%= item.id %>">Удалить</button>
                         </div>
                     </div>
                 <% }); %>
             <% } %>
         </div>
 
-        <!-- Общая стоимость корзины -->
         <% if (cartItems.length > 0) { %>
             <div class="total-container">
                 <h3>Общая стоимость: <span class="total-price">

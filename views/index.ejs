@@ -5,7 +5,6 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>АгроМир - Главная</title>
     <link rel="stylesheet" href="/styles/main.css">
-    <link rel="stylesheet" href="/styles/index.css">
     <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;700&family=Roboto:wght@300;400&display=swap" rel="stylesheet">
 </head>
 <body>
@@ -13,10 +12,15 @@
 
     <header>
         <div class="auth-section">
-            <div class="auth-buttons">
-                <button class="auth-btn" onclick="window.location.href='/login'">Войти</button>
-                <button class="auth-btn" onclick="window.location.href='/register'">Зарегистрироваться</button>
-            </div>
+            <% if (user) { %>
+                <div class="user-profile">
+                    <img src="<%= user.avatar_url || 'https://via.placeholder.com/30x30?text=Avatar' %>" alt="Аватар" class="avatar">
+                    <span><%= user.email %></span>
+                    <button class="logout-btn" onclick="window.location.href='/logout'">Выйти</button>
+                </div>
+            <% } else { %>
+                <a href="/login">Вход</a> | <a href="/register">Регистрация</a>
+            <% } %>
         </div>
     </header>
 
@@ -31,27 +35,9 @@
     </nav>
 
     <main class="content">
-        <h1 class="page-title">Главная</h1>
-        <section class="hero">
-            <h2>Добро пожаловать в АгроМир!</h2>
-            <p>Экологичные решения для вашего сада</p>
-        </section>
-
-        <!-- Контейнеры с текстом-заполнителем -->
-        <div class="info-container">
-            <h3>О нашем магазине</h3>
-            <p>Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.</p>
-        </div>
-
-        <div class="info-container">
-            <h3>Наши преимущества</h3>
-            <p>Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat.</p>
-        </div>
-
-        <div class="info-container">
-            <h3>Свяжитесь с нами</h3>
-            <p>Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur.</p>
-        </div>
+        <h1 class="page-title">Добро пожаловать в АгроМир!</h1>
+        <p>Мы предлагаем широкий ассортимент товаров для вашего сада и огорода.</p>
+        <a href="/catalog" class="btn">Перейти в каталог</a>
     </main>
 
     <footer>

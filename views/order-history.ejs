@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>АгроМир - История заказов</title>
+    <link rel="stylesheet" href="/styles/main.css">
+    <link rel="stylesheet" href="/styles/order-history.css">
+    <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;700&family=Roboto:wght@300;400&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div class="background"></div>
+
+    <header>
+        <div class="auth-section">
+            <div class="user-profile">
+                <img src="<%= user.avatar_url || 'https://via.placeholder.com/30x30?text=Avatar' %>" alt="Аватар" class="avatar">
+                <span><%= user.email %></span>
+                <button class="logout-btn" onclick="window.location.href='/logout'">Выйти</button>
+            </div>
+        </div>
+    </header>
+
+    <nav class="sidebar">
+        <img src="/logo.png" alt="Логотип АгроМир" class="logo">
+        <ul>
+            <li><a href="/">Главная</a></li>
+            <li><a href="/catalog">Каталог товаров</a></li>
+            <li><a href="/cart">Корзина</a></li>
+            <li><a href="/profile">Личный кабинет</a></li>
+        </ul>
+    </nav>
+
+    <main class="content">
+        <h1 class="page-title">История заказов</h1>
+        <div class="order-history-table">
+            <% if (orders.length === 0) { %>
+                <p>У вас пока нет заказов.</p>
+            <% } else { %>
+                <% orders.forEach(order => { %>
+                    <div class="order-item">
+                        <div class="order-header">
+                            <h3>Заказ №<%= order.id %> от <%= order.created_at.toISOString().split('T')[0] %></h3>
+                            <p>Статус: <%= order.status %></p>
+                        </div>
+                        <div class="order-details">
+                            <p>Адрес доставки: <%= order.shipping_address %></p>
+                            <p>Способ оплаты: <%= order.payment_method %></p>
+                            <p>Общая стоимость: <%= order.total_price.toFixed(2) %> руб.</p>
+                        </div>
+                        <div class="order-items">
+                            <h4>Товары:</h4>
+                            <% order.items.forEach(item => { %>
+                                <div class="order-item-detail">
+                                    <img src="<%= item.image_url %>" alt="<%= item.name %>" class="order-item-image">
+                                    <div class="order-item-info">
+                                        <p><%= item.name %></p>
+                                        <p>Количество: <%= item.quantity %> шт.</p>
+                                        <p>Цена за единицу: <%= item.price_at_time.toFixed(2) %> руб.</p>
+                                    </div>
+                                </div>
+                            <% }); %>
+                        </div>
+                    </div>
+                <% }); %>
+            <% } %>
+        </div>
+    </main>
+
+    <footer>
+        <p>© 2025 АгроМир. Все права защищены.</p>
+    </footer>
+</body>
+</html>

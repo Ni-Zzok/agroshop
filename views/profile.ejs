@@ -14,8 +14,8 @@
     <header>
         <div class="auth-section">
             <div class="user-profile">
-                <img src="https://via.placeholder.com/30x30?text=Avatar" alt="Аватар" class="avatar">
-                <span>user@example.com</span>
+                <img src="<%= user.avatar_url || 'https://via.placeholder.com/30x30?text=Avatar' %>" alt="Аватар" class="avatar">
+                <span><%= user.email %></span>
                 <button class="logout-btn" onclick="window.location.href='/logout'">Выйти</button>
             </div>
         </div>
@@ -36,58 +36,51 @@
         <div class="profile-container">
             <!-- Аватар -->
             <div class="avatar-section">
-                <img src="https://via.placeholder.com/100x100?text=Avatar" alt="Аватар" class="profile-avatar">
+                <img src="<%= user.avatar_url || 'https://via.placeholder.com/100x100?text=Avatar' %>" alt="Аватар" class="profile-avatar">
                 <button class="change-avatar-btn">Сменить аватар</button>
             </div>
 
             <!-- Форма профиля -->
-            <form class="profile-form">
+            <form class="profile-form" method="POST" action="/profile">
                 <div class="form-group">
                     <label for="email">Электронная почта:</label>
-                    <input type="email" id="email" name="email" value="user@example.com" required>
+                    <input type="email" id="email" name="email" value="<%= user.email %>" required>
                 </div>
                 <div class="form-group">
                     <label for="firstName">Имя:</label>
-                    <input type="text" id="firstName" name="firstName" value="Иван">
+                    <input type="text" id="firstName" name="firstName" value="<%= user.first_name || '' %>">
                 </div>
                 <div class="form-group">
                     <label for="lastName">Фамилия:</label>
-                    <input type="text" id="lastName" name="lastName" value="Иванов">
+                    <input type="text" id="lastName" name="lastName" value="<%= user.last_name || '' %>">
                 </div>
                 <div class="form-group">
                     <label for="phone">Номер телефона:</label>
-                    <input type="tel" id="phone" name="phone" value="+7 (999) 123-45-67">
+                    <input type="tel" id="phone" name="phone" value="<%= user.phone || '' %>">
                 </div>
                 <div class="form-group">
                     <label for="address">Адрес доставки:</label>
-                    <input type="text" id="address" name="address" value="ул. Примерная, д. 10, г. Москва, 123456">
+                    <input type="text" id="address" name="address" value="<%= user.address || '' %>">
                 </div>
                 <div class="form-group">
                     <label for="birthDate">Дата рождения:</label>
-                    <input type="date" id="birthDate" name="birthDate" value="1990-01-01">
+                    <input type="date" id="birthDate" name="birthDate" value="<%= user.birth_date || '' %>">
                 </div>
                 <div class="form-group">
                     <label for="gender">Пол:</label>
                     <select id="gender" name="gender">
-                        <option value="male" selected>Мужской</option>
-                        <option value="female">Женский</option>
-                        <option value="other">Другое</option>
-                    </select>
-                </div>
-                <div class="form-group">
-                    <label for="paymentMethod">Предпочитаемый способ оплаты:</label>
-                    <select id="paymentMethod" name="paymentMethod">
-                        <option value="card" selected>Картой</option>
-                        <option value="cash">Наличными при получении</option>
+                        <option value="male" <%= user.gender === 'male' ? 'selected' : '' %>>Мужской</option>
+                        <option value="female" <%= user.gender === 'female' ? 'selected' : '' %>>Женский</option>
+                        <option value="other" <%= user.gender === 'other' ? 'selected' : '' %>>Другое</option>
                     </select>
                 </div>
                 <div class="form-group">
                     <label for="newsletter">Подписка на рассылку:</label>
-                    <input type="checkbox" id="newsletter" name="newsletter" checked>
+                    <input type="checkbox" id="newsletter" name="newsletter" <%= user.newsletter ? 'checked' : '' %>>
                 </div>
                 <div class="form-group">
                     <label>Дата регистрации:</label>
-                    <p class="static-field">01.01.2023</p>
+                    <p class="static-field"><%= user.registration_date.toISOString().split('T')[0] %></p>
                 </div>
                 <div class="form-group">
                     <label for="newPassword">Новый пароль:</label>
