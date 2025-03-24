@@ -1,9 +1,15 @@
 const express = require('express');
+const http = require('http');
+const { Server } = require('socket.io');
 const path = require('path');
 const { Pool } = require('pg');
 const session = require('express-session');
 
+
 const app = express();
+
+const server = http.createServer(app);
+const io = new Server(server);
 
 // Настройка подключения к PostgreSQL
 const pool = new Pool({
@@ -375,8 +381,115 @@ app.get('/order-history', requireAuth, async (req, res) => {
     }
 });
 
+
+
+// Логика бота через Socket.IO
+io.on('connection', (socket) => {
+    // Получаем userId из сессии через handshake (передаем его при подключении)
+    const userId = socket.handshake.session?.userId || null;
+
+    if (!userId) {
+        socket.emit('response', 'Пожалуйста, войдите в систему, чтобы использовать чат-бот. <a href="/login">Войти</a>');
+        return;
+    }
+
+    socket.emit('response', 'Привет! Я бот магазина семян. Введи команду: "поиск", "заказ" или "история".');
+
+    socket.on('message', async (msg) => {
+        const input = msg.trim().toLowerCase();
+
+        // Поиск товаров
+        if (input.startsWith('поиск')) {
+            const query = input.replace('поиск', '').trim();
+            const res = await pool.query(
+                `SELECT p.*, c.name as category_name 
+                 FROM products p 
+                 LEFT JOIN categories c ON p.category_id = c.id 
+                 WHERE p.name ILIKE $1 OR p.article ILIKE $1`,
+                [`%${query}%`]
+            );
+            if (res.rows.length > 0) {
+                const response = res.rows.map(row => `${row.name} (арт. ${row.article}, категория: ${row.category_name || 'нет'}) - ${row.price} руб., в наличии: ${row.stock}`).join('\n');
+                socket.emit('response', `Найдено:\n${response}`);
+            } else {
+                socket.emit('response', 'Ничего не найдено.');
+            }
+        }
+
+        // Оформление заказа
+        else if (input.startsWith('заказ')) {
+            const article = input.replace('заказ', '').trim();
+            const productRes = await pool.query('SELECT * FROM products WHERE article = $1', [article]);
+            if (productRes.rows.length === 0 || productRes.rows[0].stock <= 0) {
+                socket.emit('response', 'Товар не найден или отсутствует на складе.');
+                return;
+            }
+
+            const product = productRes.rows[0];
+            const quantity = 1; // Можно сделать настраиваемым
+            const totalPrice = product.price * quantity;
+
+            // Получаем данные пользователя для адреса доставки
+            const userRes = await pool.query('SELECT address FROM users WHERE id = $1', [userId]);
+            const shippingAddress = userRes.rows[0]?.address || 'Адрес не указан';
+
+            // Создаем заказ
+            const orderRes = await pool.query(
+                `INSERT INTO orders (user_id, total_price, status, shipping_address, payment_method, created_at) 
+                 VALUES ($1, $2, $3, $4, $5, NOW()) RETURNING id`,
+                [userId, totalPrice, 'pending', shippingAddress, 'cash']
+            );
+            const orderId = orderRes.rows[0].id;
+
+            // Добавляем детали заказа
+            await pool.query(
+                `INSERT INTO order_items (order_id, quantity, price_at_time, product_article) 
+                 VALUES ($1, $2, $3, $4)`,
+                [orderId, quantity, product.price, article]
+            );
+
+            // Обновляем количество на складе
+            await pool.query('UPDATE products SET stock = stock - $1 WHERE article = $2', [quantity, article]);
+
+            socket.emit('response', `Заказ на ${product.name} (арт. ${article}) оформлен! Сумма: ${totalPrice} руб.`);
+        }
+
+        // История заказов
+        else if (input === 'история') {
+            const ordersRes = await pool.query(
+                `SELECT o.id, o.total_price, o.created_at, oi.quantity, oi.price_at_time, p.name, p.article 
+                 FROM orders o 
+                 JOIN order_items oi ON o.id = oi.order_id 
+                 JOIN products p ON oi.product_article = p.article 
+                 WHERE o.user_id = $1`,
+                [userId]
+            );
+
+            if (ordersRes.rows.length > 0) {
+                const response = ordersRes.rows.map(row => 
+                    `Заказ #${row.id} от ${row.created_at}: ${row.name} (арт. ${row.article}) - ${row.quantity} шт., цена: ${row.price_at_time} руб. Итого: ${row.total_price} руб.`
+                ).join('\n');
+                socket.emit('response', `Ваши заказы:\n${response}`);
+            } else {
+                socket.emit('response', 'У вас пока нет заказов.');
+            }
+        }
+
+        else {
+            socket.emit('response', 'Не понял. Используй "поиск <название>", "заказ <артикул>" или "история".');
+        }
+    });
+});
+  
+// Middleware для передачи сессии в Socket.IO
+io.use((socket, next) => {
+    const session = socket.request.session;
+    socket.handshake.session = session;
+    next();
+});
+
 // Запуск сервера
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
+server.listen(PORT, () => {
     console.log(`Сервер запущен на порту ${PORT}`);
 });

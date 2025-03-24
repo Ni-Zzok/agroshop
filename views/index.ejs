@@ -5,7 +5,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>АгроМир - Главная</title>
     <link rel="stylesheet" href="/styles/main.css">
+    <link rel="stylesheet" href="/styles/index.css">
     <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;700&family=Roboto:wght@300;400&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
 </head>
 <body>
     <div class="background"></div>
@@ -19,7 +21,7 @@
                     <button class="logout-btn" onclick="window.location.href='/logout'">Выйти</button>
                 </div>
             <% } else { %>
-                <a href="/login">Вход</a> | <a href="/register">Регистрация</a>
+                <a href="/login" class="auth-btn">Вход</a> | <a href="/register" class="auth-btn">Регистрация</a>
             <% } %>
         </div>
     </header>
@@ -40,8 +42,86 @@
         <a href="/catalog" class="btn">Перейти в каталог</a>
     </main>
 
-    <footer>
-        <p>© 2025 АгроМир. Все права защищены.</p>
-    </footer>
+<!-- Чат-бот -->
+<div class="chat-container minimized">
+    <div class="chat-header">
+        <span>Чат с ботом</span>
+        <button class="chat-toggle-btn">−</button>
+    </div>
+    <div class="chat-body" id="chat">
+        <!-- Сообщения будут добавляться сюда -->
+    </div>
+    <div class="chat-footer">
+        <input type="text" id="chat-input" placeholder="Введите сообщение...">
+        <button id="chat-send-btn">Отправить</button>
+    </div>
+</div>
+<button class="chat-open-btn"><i class="fas fa-comment"></i> Чат</button>
+
+<footer>
+    <p>© 2025 АгроМир. Все права защищены.</p>
+</footer>
+
+<!-- Подключение Socket.IO -->
+<script src="/socket.io/socket.io.js"></script>
+<script>
+    if (typeof io === 'undefined') {
+        console.error('Socket.IO не загружен. Проверьте подключение скрипта /socket.io/socket.io.js');
+    } else {
+        const socket = io();
+        const chatContainer = document.querySelector('.chat-container');
+        const chatBody = document.getElementById('chat');
+        const chatInput = document.getElementById('chat-input');
+        const chatSendBtn = document.getElementById('chat-send-btn');
+        const chatToggleBtn = document.querySelector('.chat-toggle-btn');
+        const chatOpenBtn = document.querySelector('.chat-open-btn');
+
+        // Получение сообщений от сервера
+        socket.on('response', (msg) => {
+            const messageElement = document.createElement('div');
+            messageElement.classList.add('chat-message', 'bot-message');
+            messageElement.innerHTML = msg;
+            chatBody.appendChild(messageElement);
+            chatBody.scrollTop = chatBody.scrollHeight;
+        });
+
+        // Отправка сообщения
+        chatSendBtn.addEventListener('click', () => {
+            sendMessage();
+        });
+
+        chatInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                sendMessage();
+            }
+        });
+
+        function sendMessage() {
+            const message = chatInput.value.trim();
+            if (message) {
+                const messageElement = document.createElement('div');
+                messageElement.classList.add('chat-message', 'user-message');
+                messageElement.textContent = message;
+                chatBody.appendChild(messageElement);
+                console.log('Отправка сообщения:', message);
+                socket.emit('message', message);
+                chatInput.value = '';
+                chatBody.scrollTop = chatBody.scrollHeight;
+            }
+        }
+
+        // Показать/скрыть чат
+        chatToggleBtn.addEventListener('click', () => {
+            console.log('Сворачивание/разворачивание чата');
+            chatContainer.classList.add('minimized');
+        });
+
+        chatOpenBtn.addEventListener('click', () => {
+            console.log('Открытие чата');
+            chatContainer.classList.remove('minimized');
+        });
+    }
+</script>
+</script>
 </body>
 </html>
