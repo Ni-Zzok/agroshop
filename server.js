@@ -4,19 +4,45 @@ const { Server } = require('socket.io');
 const path = require('path');
 const { Pool } = require('pg');
 const session = require('express-session');
-
+const natural = require('natural');
+const { NlpManager } = require('node-nlp');
+const { exec } = require('child_process');
+const util = require('util');
+const execPromise = util.promisify(exec);
 
 const app = express();
-
 const server = http.createServer(app);
 const io = new Server(server);
 
+// Настройка сессий
+const sessionMiddleware = session({
+    secret: 'your_secret_key',
+    resave: false,
+    saveUninitialized: false,
+    cookie: { secure: false }
+});
+
+app.use(sessionMiddleware);
+
+// Передаем сессии в Socket.IO
+io.use((socket, next) => {
+    sessionMiddleware(socket.request, {}, next);
+});
+
+// Middleware для проверки авторизации
+const requireAuth = (req, res, next) => {
+    if (!req.session.userId) {
+        return res.status(403).send('Необходимо войти в систему. <a href="/login">Войти</a>');
+    }
+    next();
+};
+
 // Настройка подключения к PostgreSQL
 const pool = new Pool({
-    user: 'postgres', // Замените на имя пользователя PostgreSQL
+    user: 'postgres',
     host: 'localhost',
-    database: 'agroshop', // Замените на имя вашей базы данных
-    password: '2264', // Замените на пароль
+    database: 'agroshop',
+    password: '2264',
     port: 5433,
 });
 
@@ -29,36 +55,134 @@ pool.connect((err, client, release) => {
     release();
 });
 
-// Настройка сессий
-app.use(session({
-    secret: 'your_secret_key', // Замените на свой секретный ключ
-    resave: false,
-    saveUninitialized: false,
-    cookie: { secure: false } // В продакшене установите secure: true при использовании HTTPS
-}));
-
 // Настройка шаблонизатора EJS
 app.set('view engine', 'ejs');
 app.set('views', path.join(__dirname, 'views'));
 
-// Настройка статических файлов (CSS, изображения и т.д.)
+// Настройка статических файлов
 app.use(express.static(path.join(__dirname, 'public')));
 app.use(express.urlencoded({ extended: true }));
 
-// Middleware для проверки авторизации
-const requireAuth = (req, res, next) => {
-    if (!req.session.userId) {
-        return res.status(403).send('Необходимо войти в систему. <a href="/login">Войти</a>');
+// Инициализация инструментов natural для токенизации
+const tokenizer = new natural.WordTokenizer();
+const stopWords = ['и', 'в', 'на', 'с', 'по', 'для', 'что', 'где', 'как', 'это', 'мне', 'мои', 'покажи', 'семена', 'семян'];
+
+// Инициализация node-nlp для классификации намерений
+const nlpManager = new NlpManager({ languages: ['ru'], forceNER: true });
+
+// Простая нормализация текста с лемматизацией через natasha
+const normalizeText = async (text) => {
+    if (!text || typeof text !== 'string') {
+        console.warn('normalizeText: текст пустой или не является строкой:', text);
+        return '';
     }
-    next();
+
+    // Базовая нормализация
+    let normalizedText = text.toLowerCase();
+    normalizedText = normalizedText.replace('истрия', 'история');
+    normalizedText = normalizedText.replace('history', 'история');
+
+    // Лемматизация через natasha
+    try {
+        const pythonPath = 'python'; // Или укажи полный путь, если нужно
+        const { stdout } = await execPromise(`${pythonPath} lemmatize.py "${normalizedText}"`, { encoding: 'utf8' });
+        const result = JSON.parse(stdout);
+        normalizedText = result.lemmatized;
+    } catch (err) {
+        console.error('Ошибка при лемматизации с natasha:', err);
+        // Если лемматизация не удалась, продолжаем с базовой нормализацией
+    }
+
+    // Токенизация и удаление стоп-слов
+    const tokenized = tokenizer.tokenize(normalizedText);
+    normalizedText = tokenized.filter(token => !stopWords.includes(token)).join(' ');
+
+    return normalizedText;
 };
 
-// Маршрут для главной страницы
+// Функция для лемматизации текста через natasha для обучения
+const lemmatizeForTraining = async (text) => {
+    try {
+        const pythonPath = 'python'; // Или укажи полный путь, если нужно
+        const { stdout } = await execPromise(`${pythonPath} lemmatize.py "${text.toLowerCase()}"`, { encoding: 'utf8' });
+        const result = JSON.parse(stdout);
+        return result.lemmatized;
+    } catch (err) {
+        console.error('Ошибка при лемматизации для обучения:', err);
+        return text.toLowerCase(); // Fallback на исходный текст
+    }
+};
+
+// Обучаем node-nlp с лемматизированными примерами
+(async () => {
+    // Намерение: поиск
+    const searchExamples = [
+        'найди семена томатов',
+        'ищу семена огурцов',
+        'поиск семян',
+        'найти что-то для сада',
+        'покажи семена',
+        'где семена томатов',
+        'покажи мне товары для огорода',
+        'где найти семена перца',
+        'ищу что-нибудь для посадки'
+    ];
+
+    for (const example of searchExamples) {
+        const lemmatizedExample = await lemmatizeForTraining(example);
+        nlpManager.addDocument('ru', lemmatizedExample, 'поиск');
+        console.log(`Добавлен лемматизированный пример для поиска: ${lemmatizedExample}`);
+    }
+
+    // Намерение: заказ
+    const orderExamples = [
+        'хочу заказать семена',
+        'закажи A123',
+        'оформить заказ на семена томатов',
+        'купить семена огурцов',
+        'заказать 3 пачки семян',
+        'хочу купить семена моркови',
+        'оформить заказ на A456',
+        'закажи семена для сада',
+        'купить 2 пачки семян томатов'
+    ];
+
+    for (const example of orderExamples) {
+        const lemmatizedExample = await lemmatizeForTraining(example);
+        nlpManager.addDocument('ru', lemmatizedExample, 'заказ');
+        console.log(`Добавлен лемматизированный пример для заказа: ${lemmatizedExample}`);
+    }
+
+    // Намерение: история
+    const historyExamples = [
+        'покажи историю',
+        'мои заказы',
+        'история заказов',
+        'что я заказывал',
+        'покажи мои заказы',
+        'посмотреть историю заказов',
+        'покажи, что я покупал',
+        'мои прошлые заказы',
+        'история моих покупок'
+    ];
+
+    for (const example of historyExamples) {
+        const lemmatizedExample = await lemmatizeForTraining(example);
+        nlpManager.addDocument('ru', lemmatizedExample, 'история');
+        console.log(`Добавлен лемматизированный пример для истории: ${lemmatizedExample}`);
+    }
+
+    // Обучаем node-nlp
+    await nlpManager.train();
+    nlpManager.save();
+    console.log('node-nlp переобучен и сохранён с лемматизированными примерами');
+})();
+
+// Маршруты
 app.get('/', (req, res) => {
     res.render('index', { user: req.session.user });
 });
 
-// Маршрут для страницы входа
 app.get('/login', (req, res) => {
     if (req.session.userId) {
         return res.redirect('/profile');
@@ -66,7 +190,6 @@ app.get('/login', (req, res) => {
     res.render('login', { error: null });
 });
 
-// Маршрут для обработки входа
 app.post('/login', async (req, res) => {
     const { email, password } = req.body;
 
@@ -82,11 +205,10 @@ app.post('/login', async (req, res) => {
         }
 
         const user = result.rows[0];
-        if (password !== user.password) { // В реальном приложении используйте bcrypt.compare
+        if (password !== user.password) {
             return res.render('login', { error: 'Неверный пароль' });
         }
 
-        // Сохраняем данные пользователя в сессии
         req.session.userId = user.id;
         req.session.user = {
             email: user.email,
@@ -101,7 +223,6 @@ app.post('/login', async (req, res) => {
     }
 });
 
-// Маршрут для страницы регистрации
 app.get('/register', (req, res) => {
     if (req.session.userId) {
         return res.redirect('/profile');
@@ -109,12 +230,10 @@ app.get('/register', (req, res) => {
     res.render('register', { error: null });
 });
 
-// Маршрут для обработки регистрации
 app.post('/register', async (req, res) => {
     const { email, password, firstName, lastName } = req.body;
 
     try {
-        // Проверяем, существует ли пользователь с таким email
         const existingUser = await pool.query(`
             SELECT id
             FROM Users
@@ -125,12 +244,11 @@ app.post('/register', async (req, res) => {
             return res.render('register', { error: 'Пользователь с таким email уже существует' });
         }
 
-        // Добавляем нового пользователя
         const result = await pool.query(`
             INSERT INTO Users (email, password, first_name, last_name, role, registration_date)
             VALUES ($1, $2, $3, $4, 'user', CURRENT_TIMESTAMP)
             RETURNING id, email, first_name, last_name
-        `, [email, password, firstName, lastName]); // В реальном приложении хэшируйте пароль
+        `, [email, password, firstName, lastName]);
 
         const user = result.rows[0];
         req.session.userId = user.id;
@@ -147,7 +265,6 @@ app.post('/register', async (req, res) => {
     }
 });
 
-// Маршрут для выхода
 app.get('/logout', (req, res) => {
     req.session.destroy((err) => {
         if (err) {
@@ -158,7 +275,6 @@ app.get('/logout', (req, res) => {
     });
 });
 
-// Маршрут для каталога товаров
 app.get('/catalog', async (req, res) => {
     try {
         const result = await pool.query(`
@@ -173,7 +289,6 @@ app.get('/catalog', async (req, res) => {
     }
 });
 
-// Маршрут для корзины
 app.get('/cart', async (req, res) => {
     try {
         if (!req.session.userId) {
@@ -193,7 +308,6 @@ app.get('/cart', async (req, res) => {
     }
 });
 
-// Маршрут для добавления товара в корзину
 app.post('/cart/add', async (req, res) => {
     if (!req.session.userId) {
         return res.status(403).send('Необходимо войти в систему. <a href="/login">Войти</a>');
@@ -229,7 +343,6 @@ app.post('/cart/add', async (req, res) => {
     }
 });
 
-// Маршрут для профиля
 app.get('/profile', requireAuth, async (req, res) => {
     try {
         const result = await pool.query(`
@@ -248,7 +361,6 @@ app.get('/profile', requireAuth, async (req, res) => {
     }
 });
 
-// Маршрут для обновления профиля
 app.post('/profile', requireAuth, async (req, res) => {
     const {
         email, firstName, lastName, phone, address, birthDate, gender, newsletter, newPassword, currentPassword
@@ -267,7 +379,7 @@ app.post('/profile', requireAuth, async (req, res) => {
         }
 
         const currentPasswordInDb = userResult.rows[0].password;
-        if (currentPassword !== currentPasswordInDb) { // В реальном приложении используйте bcrypt.compare
+        if (currentPassword !== currentPasswordInDb) {
             return res.status(400).send('Неверный текущий пароль');
         }
 
@@ -308,7 +420,7 @@ app.post('/profile', requireAuth, async (req, res) => {
 
         if (newPassword) {
             updateFields.push(`password = $${paramIndex++}`);
-            values.push(newPassword); // В реальном приложении нужно хэшировать пароль
+            values.push(newPassword);
         }
 
         values.push(userId);
@@ -320,7 +432,6 @@ app.post('/profile', requireAuth, async (req, res) => {
                 WHERE id = $${paramIndex}
             `, values);
 
-            // Обновляем данные в сессии
             const updatedUser = await pool.query(`
                 SELECT email, first_name, last_name, avatar_url
                 FROM Users
@@ -336,7 +447,6 @@ app.post('/profile', requireAuth, async (req, res) => {
     }
 });
 
-// Маршрут для истории заказов
 app.get('/order-history', requireAuth, async (req, res) => {
     try {
         const ordersResult = await pool.query(`
@@ -347,15 +457,13 @@ app.get('/order-history', requireAuth, async (req, res) => {
         `, [req.session.userId]);
 
         const orders = ordersResult.rows.map(order => {
-            // Преобразуем total_price в число, с проверкой
             const totalPrice = parseFloat(order.total_price);
             return {
                 ...order,
-                total_price: isNaN(totalPrice) ? 0 : totalPrice // Если не удалось преобразовать, используем 0
+                total_price: isNaN(totalPrice) ? 0 : totalPrice
             };
         });
 
-        // Для каждого заказа получаем его элементы
         for (let order of orders) {
             const itemsResult = await pool.query(`
                 SELECT oi.quantity, oi.price_at_time, p.name, p.image_url
@@ -365,11 +473,10 @@ app.get('/order-history', requireAuth, async (req, res) => {
             `, [order.id]);
 
             order.items = itemsResult.rows.map(item => {
-                // Преобразуем price_at_time в число, с проверкой
                 const priceAtTime = parseFloat(item.price_at_time);
                 return {
                     ...item,
-                    price_at_time: isNaN(priceAtTime) ? 0 : priceAtTime // Если не удалось преобразовать, используем 0
+                    price_at_time: isNaN(priceAtTime) ? 0 : priceAtTime
                 };
             });
         }
@@ -381,44 +488,182 @@ app.get('/order-history', requireAuth, async (req, res) => {
     }
 });
 
+app.post('/webhook', express.json(), async (req, res) => {
+    const intent = req.body.queryResult.intent.displayName;
+    const parameters = req.body.queryResult.parameters;
 
+    let responseText = '';
+
+    if (intent === 'SearchIntent') {
+        let query = parameters.product || req.body.queryResult.queryText.replace(/(поиск|найди|найти|ищу|покажи|где)/i, '').trim();
+        if (!query) {
+            responseText = 'Укажи, что именно ты хочешь найти. Например: "найди семена томатов".';
+        } else {
+            const queryWords = query.split(/\s+/);
+            let conditions = [];
+            let values = [];
+            let paramIndex = 1;
+
+            for (let word of queryWords) {
+                if (word) {
+                    conditions.push(`(p.name ILIKE $${paramIndex} OR p.article ILIKE $${paramIndex})`);
+                    values.push(`%${word}%`);
+                    paramIndex++;
+                }
+            }
+
+            const sqlQuery = `
+                SELECT p.*, c.name as category_name 
+                FROM products p 
+                LEFT JOIN categories c ON p.category_id = c.id 
+                WHERE ${conditions.join(' AND ')}
+            `;
+
+            const result = await pool.query(sqlQuery, values);
+            if (result.rows.length > 0) {
+                responseText = 'Вот что я нашел:\n' + result.rows.map(row => `${row.name} (арт. ${row.article}, категория: ${row.category_name || 'нет'}) - ${row.price} руб., в наличии: ${row.stock}`).join('\n');
+            } else {
+                responseText = 'Ничего не найдено.';
+            }
+        }
+    } else if (intent === 'OrderIntent') {
+        // Логика для заказа (аналогично)
+        responseText = 'Оформляю заказ...';
+    } else if (intent === 'HistoryIntent') {
+        // Логика для истории заказов (аналогично)
+        responseText = 'Показываю историю заказов...';
+    }
+
+    // Формируем ответ для Dialogflow
+    res.json({
+        fulfillmentText: responseText
+    });
+});
 
 // Логика бота через Socket.IO
 io.on('connection', (socket) => {
-    // Получаем userId из сессии через handshake (передаем его при подключении)
-    const userId = socket.handshake.session?.userId || null;
+    const userId = socket.request.session?.userId || null;
+    console.log('Пользователь подключился, userId:', userId);
 
     if (!userId) {
         socket.emit('response', 'Пожалуйста, войдите в систему, чтобы использовать чат-бот. <a href="/login">Войти</a>');
-        return;
+    } else {
+        socket.emit('response', 'Привет! Я бот магазина семян. Можешь попросить меня найти товар, оформить заказ или показать историю заказов. Например: "найди семена томатов", "закажи семена огурцов", "покажи историю".');
     }
 
-    socket.emit('response', 'Привет! Я бот магазина семян. Введи команду: "поиск", "заказ" или "история".');
-
     socket.on('message', async (msg) => {
-        const input = msg.trim().toLowerCase();
+        if (!userId) {
+            socket.emit('response', 'Пожалуйста, войдите в систему, чтобы использовать чат-бот. <a href="/login">Войти</a>');
+            return;
+        }
 
-        // Поиск товаров
-        if (input.startsWith('поиск')) {
-            const query = input.replace('поиск', '').trim();
-            const res = await pool.query(
-                `SELECT p.*, c.name as category_name 
-                 FROM products p 
-                 LEFT JOIN categories c ON p.category_id = c.id 
-                 WHERE p.name ILIKE $1 OR p.article ILIKE $1`,
-                [`%${query}%`]
-            );
+        const normalizedInput = await normalizeText(msg.trim());
+        console.log('Получено сообщение (после нормализации):', normalizedInput);
+
+        // Определяем намерение с помощью node-nlp
+        const response = await nlpManager.process('ru', normalizedInput);
+        const intent = response.intent;
+        const classifications = response.classifications;
+        console.log('Распознанное намерение (node-nlp):', intent);
+        console.log('Вероятности (node-nlp):', classifications);
+
+        // Уточнение намерения, если вероятности близки
+        const topClassifications = classifications.slice(0, 2);
+        if (topClassifications.length > 1 && topClassifications[0].score - topClassifications[1].score < 0.1) {
+            const topIntent = topClassifications[0].intent;
+            const secondIntent = topClassifications[1].intent;
+            let clarificationMessage = 'Я не уверен, что ты хочешь. ';
+            if (topIntent === 'поиск' && secondIntent === 'история') {
+                clarificationMessage += 'Ты хочешь найти товар или посмотреть историю заказов?';
+            } else if (topIntent === 'поиск' && secondIntent === 'заказ') {
+                clarificationMessage += 'Ты хочешь найти товар или оформить заказ?';
+            } else if (topIntent === 'заказ' && secondIntent === 'история') {
+                clarificationMessage += 'Ты хочешь оформить заказ или посмотреть историю заказов?';
+            } else {
+                clarificationMessage += 'Попробуй уточнить, например: "найди семена томатов", "закажи A123" или "покажи историю".';
+            }
+            socket.emit('response', clarificationMessage);
+            return;
+        }
+
+        if (intent === 'поиск') {
+            // Извлекаем запрос для поиска
+            const queryMatch = normalizedInput.match(/(?:поиск|найди|найти|ищу|покажи|где)\s+(.+)/i);
+            let query = queryMatch ? queryMatch[1].trim() : normalizedInput.replace(/(поиск|найди|найти|ищу|покажи|где)/i, '').trim();
+
+            if (!query) {
+                socket.emit('response', 'Укажи, что именно ты хочешь найти. Например: "найди семена томатов".');
+                return;
+            }
+
+            // Разбиваем запрос на слова и ищем по каждому слову
+            const queryWords = query.split(/\s+/);
+            let conditions = [];
+            let values = [];
+            let paramIndex = 1;
+
+            for (let word of queryWords) {
+                if (word) {
+                    conditions.push(`(p.name ILIKE $${paramIndex} OR p.article ILIKE $${paramIndex})`);
+                    values.push(`%${word}%`);
+                    paramIndex++;
+                }
+            }
+
+            if (conditions.length === 0) {
+                socket.emit('response', 'Укажи, что именно ты хочешь найти. Например: "найди семена томатов".');
+                return;
+            }
+
+            const sqlQuery = `
+                SELECT p.*, c.name as category_name 
+                FROM products p 
+                LEFT JOIN categories c ON p.category_id = c.id 
+                WHERE ${conditions.join(' AND ')}
+            `;
+
+            const res = await pool.query(sqlQuery, values);
             if (res.rows.length > 0) {
                 const response = res.rows.map(row => `${row.name} (арт. ${row.article}, категория: ${row.category_name || 'нет'}) - ${row.price} руб., в наличии: ${row.stock}`).join('\n');
-                socket.emit('response', `Найдено:\n${response}`);
+                socket.emit('response', `Вот что я нашел:\n${response}`);
             } else {
                 socket.emit('response', 'Ничего не найдено.');
             }
-        }
+        } else if (intent === 'заказ') {
+            // Извлекаем название товара или артикул
+            const articleMatch = normalizedInput.match(/(?:заказ|закажи|хочу заказать|оформить заказ|купить)\s+(.+)/i);
+            let article;
 
-        // Оформление заказа
-        else if (input.startsWith('заказ')) {
-            const article = input.replace('заказ', '').trim();
+            if (articleMatch) {
+                const productName = articleMatch[1].trim();
+                // Ищем товар по названию
+                const productRes = await pool.query(
+                    `SELECT * FROM products WHERE name ILIKE $1 LIMIT 1`,
+                    [`%${productName}%`]
+                );
+
+                if (productRes.rows.length === 0) {
+                    // Проверяем, есть ли артикул в формате "A123"
+                    const articleDirectMatch = normalizedInput.match(/\b[A-Z]\d{3}\b/i);
+                    if (articleDirectMatch) {
+                        article = articleDirectMatch[0];
+                    } else {
+                        socket.emit('response', 'Товар не найден. Попробуй уточнить название или укажи артикул, например: "закажи A123".');
+                        return;
+                    }
+                } else {
+                    article = productRes.rows[0].article;
+                }
+            } else {
+                const articleDirectMatch = normalizedInput.match(/\b[A-Z]\d{3}\b/i);
+                if (articleDirectMatch) {
+                    article = articleDirectMatch[0];
+                } else {
+                    socket.emit('response', 'Укажи, что именно ты хочешь заказать. Например: "закажи семена томатов" или "закажи A123".');
+                    return;
+                }
+            }
+
             const productRes = await pool.query('SELECT * FROM products WHERE article = $1', [article]);
             if (productRes.rows.length === 0 || productRes.rows[0].stock <= 0) {
                 socket.emit('response', 'Товар не найден или отсутствует на складе.');
@@ -426,14 +671,12 @@ io.on('connection', (socket) => {
             }
 
             const product = productRes.rows[0];
-            const quantity = 1; // Можно сделать настраиваемым
+            const quantity = 1;
             const totalPrice = product.price * quantity;
 
-            // Получаем данные пользователя для адреса доставки
             const userRes = await pool.query('SELECT address FROM users WHERE id = $1', [userId]);
             const shippingAddress = userRes.rows[0]?.address || 'Адрес не указан';
 
-            // Создаем заказ
             const orderRes = await pool.query(
                 `INSERT INTO orders (user_id, total_price, status, shipping_address, payment_method, created_at) 
                  VALUES ($1, $2, $3, $4, $5, NOW()) RETURNING id`,
@@ -441,21 +684,16 @@ io.on('connection', (socket) => {
             );
             const orderId = orderRes.rows[0].id;
 
-            // Добавляем детали заказа
             await pool.query(
                 `INSERT INTO order_items (order_id, quantity, price_at_time, product_article) 
                  VALUES ($1, $2, $3, $4)`,
                 [orderId, quantity, product.price, article]
             );
 
-            // Обновляем количество на складе
             await pool.query('UPDATE products SET stock = stock - $1 WHERE article = $2', [quantity, article]);
 
             socket.emit('response', `Заказ на ${product.name} (арт. ${article}) оформлен! Сумма: ${totalPrice} руб.`);
-        }
-
-        // История заказов
-        else if (input === 'история') {
+        } else if (intent === 'история') {
             const ordersRes = await pool.query(
                 `SELECT o.id, o.total_price, o.created_at, oi.quantity, oi.price_at_time, p.name, p.article 
                  FROM orders o 
@@ -473,19 +711,10 @@ io.on('connection', (socket) => {
             } else {
                 socket.emit('response', 'У вас пока нет заказов.');
             }
-        }
-
-        else {
-            socket.emit('response', 'Не понял. Используй "поиск <название>", "заказ <артикул>" или "история".');
+        } else {
+            socket.emit('response', 'Не понял, что ты хочешь. Попробуй сказать, например: "найди семена томатов", "закажи A123" или "покажи историю".');
         }
     });
-});
-  
-// Middleware для передачи сессии в Socket.IO
-io.use((socket, next) => {
-    const session = socket.request.session;
-    socket.handshake.session = session;
-    next();
 });
 
 // Запуск сервера
