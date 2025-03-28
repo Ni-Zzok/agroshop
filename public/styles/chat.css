@@ -1,0 +1,186 @@
+/* Чат-бот */
+.chat-container {
+    position: fixed;
+    bottom: 20px;
+    right: 20px;
+    width: 350px;
+    height: 450px;
+    background: rgba(255, 255, 255, 0.95);
+    border-radius: 10px;
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+    display: flex;
+    flex-direction: column;
+    z-index: 5;
+    transition: transform 0.3s ease, opacity 0.3s ease;
+    overflow: hidden;
+}
+
+.chat-container.minimized {
+    transform: scale(0);
+    opacity: 0;
+    visibility: hidden;
+}
+
+.chat-header {
+    background: #3c6f3c;
+    color: #fff;
+    padding: 10px 15px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-family: 'Playfair Display', serif;
+    font-size: 1.2em;
+}
+
+.chat-toggle-btn {
+    background: none;
+    border: none;
+    color: #fff;
+    font-size: 1.2em;
+    cursor: pointer;
+    transition: transform 0.3s;
+}
+
+.chat-toggle-btn:hover {
+    transform: scale(1.1);
+}
+
+.chat-body {
+    flex: 1;
+    padding: 15px;
+    overflow-y: auto;
+    background: #f0f4f1;
+    font-family: 'Roboto', sans-serif;
+    font-size: 0.95em;
+}
+
+.chat-message {
+    margin-bottom: 10px;
+    padding: 8px 12px;
+    border-radius: 15px;
+    max-width: 80%;
+    word-wrap: break-word;
+}
+
+.user-message {
+    background: #3c6f3c;
+    color: #fff;
+    margin-left: auto;
+    text-align: right;
+}
+
+.bot-message {
+    background: #e0e0e0;
+    color: #333;
+    margin-right: auto;
+}
+
+.chat-footer {
+    padding: 10px;
+    background: #fff;
+    border-top: 1px solid #ddd;
+}
+
+.chat-buttons {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+}
+
+.chat-buttons button {
+    padding: 8px 16px;
+    background-color: #3c6f3c;
+    color: white;
+    border: none;
+    border-radius: 5px;
+    cursor: pointer;
+    font-family: 'Roboto', sans-serif;
+    font-size: 0.95em;
+    transition: background-color 0.3s;
+}
+
+.chat-buttons button:hover {
+    background-color: #2f4f2f;
+}
+
+.chat-input {
+    display: none;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.chat-input input {
+    padding: 8px;
+    border: 1px solid #ddd;
+    border-radius: 5px;
+    font-family: 'Roboto', sans-serif;
+    font-size: 0.95em;
+    outline: none;
+}
+
+.chat-input input:focus {
+    border-color: #3c6f3c;
+}
+
+.chat-input button {
+    padding: 8px 15px;
+    background: #3c6f3c;
+    color: #fff;
+    border: none;
+    border-radius: 5px;
+    cursor: pointer;
+    font-family: 'Roboto', sans-serif;
+    font-size: 0.95em;
+    transition: background-color 0.3s;
+}
+
+.chat-input button:hover {
+    background: #2f4f2f;
+}
+
+.chat-open-btn {
+    position: fixed;
+    bottom: 20px;
+    right: 20px;
+    padding: 12px 20px;
+    background: #3c6f3c;
+    color: #fff;
+    border: none;
+    border-radius: 50px;
+    cursor: pointer;
+    font-family: 'Playfair Display', serif;
+    font-size: 1em;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
+    z-index: 10;
+    transition: all 0.3s ease;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.chat-open-btn i {
+    font-size: 1.2em;
+}
+
+.chat-container:not(.minimized) ~ .chat-open-btn {
+    display: none; /* Скрываем кнопку, когда чат открыт */
+}
+
+.chat-open-btn:hover {
+    background: #2f4f2f;
+    transform: scale(1.05);
+}
+
+.cancel-btn {
+    background-color: #ff4d4d;
+    color: white;
+    border: none;
+    padding: 8px 16px;
+    margin-left: 5px;
+    border-radius: 5px;
+    cursor: pointer;
+}
+
+.cancel-btn:hover {
+    background-color: #e63939;
+}

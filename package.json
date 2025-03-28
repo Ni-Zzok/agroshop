@@ -17,6 +17,8 @@
     "natural": "^8.0.1",
     "node-nlp": "^5.0.0-alpha.5",
     "pg": "^8.14.1",
-    "socket.io": "^4.8.1"
+    "python-shell": "^5.0.0",
+    "socket.io": "^4.8.1",
+    "transliteration": "^2.3.5"
   }
 }
