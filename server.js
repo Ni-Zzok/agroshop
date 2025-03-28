@@ -4,10 +4,33 @@ const { Server } = require('socket.io');
 const path = require('path');
 const { Pool } = require('pg');
 const session = require('express-session');
+const winston = require('winston'); // Добавляем библиотеку для логирования
+const DailyRotateFile = require('winston-daily-rotate-file');
+
 
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server);
+
+// Настройка логирования с помощью winston
+const logger = winston.createLogger({
+    level: 'info',
+    format: winston.format.combine(
+        winston.format.timestamp({ format: 'YYYY-MM-DD HH:mm:ss' }),
+        winston.format.printf(({ timestamp, level, message }) => {
+            return `${timestamp} [${level.toUpperCase()}]: ${message}`;
+        })
+    ),
+    transports: [
+        new winston.transports.Console(),
+        new DailyRotateFile({
+            filename: 'logs/app-%DATE%.log',
+            datePattern: 'YYYY-MM-DD',
+            maxSize: '20m', // Максимальный размер файла 20 МБ
+            maxFiles: '14d' // Хранить логи за последние 14 дней
+        })
+    ]
+});
 
 // Настройка сессий
 const sessionMiddleware = session({
@@ -43,9 +66,10 @@ const pool = new Pool({
 
 pool.connect((err, client, release) => {
     if (err) {
-        return console.error('Ошибка подключения к базе данных:', err.stack);
+        logger.error('Ошибка подключения к базе данных: ' + err.stack);
+        return;
     }
-    console.log('Успешно подключено к базе данных PostgreSQL');
+    logger.info('Успешно подключено к базе данных PostgreSQL');
     release();
 });
 
@@ -95,9 +119,10 @@ app.post('/login', async (req, res) => {
             last_name: user.last_name,
             avatar_url: user.avatar_url
         };
+        logger.info(`Пользователь ${user.email} вошёл в систему`);
         res.redirect('/profile');
     } catch (err) {
-        console.error('Ошибка при входе:', err.stack);
+        logger.error('Ошибка при входе: ' + err.stack);
         res.status(500).send('Ошибка сервера');
     }
 });
@@ -137,19 +162,22 @@ app.post('/register', async (req, res) => {
             last_name: user.last_name,
             avatar_url: null
         };
+        logger.info(`Новый пользователь зарегистрирован: ${user.email}`);
         res.redirect('/profile');
     } catch (err) {
-        console.error('Ошибка при регистрации:', err.stack);
+        logger.error('Ошибка при регистрации: ' + err.stack);
         res.status(500).send('Ошибка сервера');
     }
 });
 
 app.get('/logout', (req, res) => {
+    const userEmail = req.session.user?.email || 'неизвестный пользователь';
     req.session.destroy((err) => {
         if (err) {
-            console.error('Ошибка при выходе:', err.stack);
+            logger.error('Ошибка при выходе: ' + err.stack);
             return res.status(500).send('Ошибка сервера');
         }
+        logger.info(`Пользователь ${userEmail} вышел из системы`);
         res.redirect('/');
     });
 });
@@ -163,7 +191,7 @@ app.get('/catalog', async (req, res) => {
         `);
         res.render('catalog', { products: result.rows, user: req.session.user });
     } catch (err) {
-        console.error('Ошибка при получении товаров:', err.stack);
+        logger.error('Ошибка при получении товаров: ' + err.stack);
         res.status(500).send('Ошибка сервера');
     }
 });
@@ -182,7 +210,7 @@ app.get('/cart', async (req, res) => {
         `, [req.session.userId]);
         res.render('cart', { cartItems: result.rows, user: req.session.user });
     } catch (err) {
-        console.error('Ошибка при получении корзины:', err.stack);
+        logger.error('Ошибка при получении корзины: ' + err.stack);
         res.status(500).send('Ошибка сервера');
     }
 });
@@ -215,9 +243,10 @@ app.post('/cart/add', async (req, res) => {
                 VALUES ($1, $2, $3)
             `, [userId, article, parseInt(quantity)]);
         }
+        logger.info(`Товар (арт. ${article}) добавлен в корзину пользователя ${userId}, количество: ${quantity}`);
         res.redirect('/cart');
     } catch (err) {
-        console.error('Ошибка при добавлении товара в корзину:', err.stack);
+        logger.error('Ошибка при добавлении товара в корзину: ' + err.stack);
         res.status(500).send('Ошибка сервера');
     }
 });
@@ -235,7 +264,7 @@ app.get('/profile', requireAuth, async (req, res) => {
         }
         res.render('profile', { user: result.rows[0] });
     } catch (err) {
-        console.error('Ошибка при получении профиля:', err.stack);
+        logger.error('Ошибка при получении профиля: ' + err.stack);
         res.status(500).send('Ошибка сервера');
     }
 });
@@ -262,7 +291,7 @@ app.get('/payment/:orderId', requireAuth, async (req, res) => {
         const order = orderRes.rows[0];
         res.render('payment', { order, user: req.session.user });
     } catch (err) {
-        console.error('Ошибка при получении заказа для оплаты:', err.stack);
+        logger.error('Ошибка при получении заказа для оплаты: ' + err.stack);
         res.status(500).send('Ошибка сервера');
     }
 });
@@ -289,9 +318,10 @@ app.post('/payment/:orderId/process', requireAuth, async (req, res) => {
             ['completed', 'card', orderId]
         );
 
+        logger.info(`Заказ #${orderId} оплачен пользователем ${userId}`);
         res.redirect('/order-history');
     } catch (err) {
-        console.error('Ошибка при обработке оплаты:', err.stack);
+        logger.error('Ошибка при обработке оплаты: ' + err.stack);
         res.status(500).send('Ошибка сервера');
     }
 });
@@ -373,11 +403,12 @@ app.post('/profile', requireAuth, async (req, res) => {
                 WHERE id = $1
             `, [userId]);
             req.session.user = updatedUser.rows[0];
+            logger.info(`Профиль пользователя ${userId} обновлён`);
         }
 
         res.redirect('/profile');
     } catch (err) {
-        console.error('Ошибка при обновлении профиля:', err.stack);
+        logger.error('Ошибка при обновлении профиля: ' + err.stack);
         res.status(500).send('Ошибка сервера');
     }
 });
@@ -418,7 +449,7 @@ app.get('/order-history', requireAuth, async (req, res) => {
 
         res.render('order-history', { orders, user: req.session.user });
     } catch (err) {
-        console.error('Ошибка при получении истории заказов:', err.stack);
+        logger.error('Ошибка при получении истории заказов: ' + err.stack);
         res.status(500).send('Ошибка сервера');
     }
 });
@@ -426,7 +457,7 @@ app.get('/order-history', requireAuth, async (req, res) => {
 // Логика бота через Socket.IO 
 io.on('connection', (socket) => {
     const userId = socket.request.session?.userId || null;
-    console.log('Пользователь подключился, userId:', userId);
+    logger.info(`Пользователь подключился, userId: ${userId}`);
 
     // Функция для показа начального меню (без приветственного сообщения)
     const showMainMenu = (withGreeting = true) => {
@@ -459,7 +490,7 @@ io.on('connection', (socket) => {
 
     // Обработка нажатий на кнопки
     socket.on('button_click', async (buttonValue) => {
-        console.log('Получено событие button_click:', buttonValue); // Отладка
+        logger.info(`Получено событие button_click: ${buttonValue}`);
 
         if (buttonValue === 'search') {
             socket.emit('response', 'Введи название товара или артикул для поиска (например, "Огурец Сюрприз" или "13326"):');
@@ -548,6 +579,7 @@ io.on('connection', (socket) => {
                 </div>
             `;
             socket.emit('response', responseText);
+            logger.info(`Заказ #${orderId} оформлен пользователем ${userId}`);
 
             orderState = {};
             showMainMenu(false);
@@ -559,7 +591,7 @@ io.on('connection', (socket) => {
 
     // Обработка ввода данных
     socket.on('input_submit', async (msg) => {
-        console.log('Получено событие input_submit:', msg); // Отладка
+        logger.info(`Получено событие input_submit: ${msg}`);
 
         if (orderState.step === 'article') {
             if (!userId) {
@@ -658,12 +690,13 @@ io.on('connection', (socket) => {
                 </div>
             `;
             socket.emit('response', responseText);
+            logger.info(`Заказ #${orderId} оформлен пользователем ${userId}`);
 
             orderState = {};
             showMainMenu(false);
         } else {
             // Поиск товара
-            const searchQuery = msg.trim();
+            const searchQuery = msg.trim().toLowerCase();
             if (!searchQuery) {
                 socket.emit('response', 'Укажи, что именно ты хочешь найти. Например: "Огурец Сюрприз" или "13326".');
                 socket.emit('show_input', { placeholder: 'Название товара или артикул' });
@@ -695,46 +728,67 @@ io.on('connection', (socket) => {
                 socket.emit('response', responseText);
             } else {
                 // Если по артикулу ничего не найдено, ищем по названию
-                // Сначала ищем по полной строке названия с SIMILARITY
+                // Нормализуем запрос, убирая типичные окончания
+                let normalizedQuery = searchQuery;
+                const endings = ['ы', 'и', 'ов', 'ами', 'ам', 'ах', 'ей', 'ой', 'а', 'я'];
+                for (const ending of endings) {
+                    if (normalizedQuery.endsWith(ending)) {
+                        normalizedQuery = normalizedQuery.slice(0, -ending.length);
+                        break;
+                    }
+                }
+
+                // Ищем по полной строке названия с SIMILARITY
                 const fullMatchRes = await pool.query(`
                     SELECT p.*, c.name as category_name, SIMILARITY(p.name, $1) as similarity_score
                     FROM products p 
                     LEFT JOIN categories c ON p.category_id = c.id 
-                    WHERE SIMILARITY(p.name, $1) > 0.3
-                    ORDER BY similarity_score DESC
+                    WHERE SIMILARITY(LOWER(p.name), LOWER($1)) > 0.2 OR SIMILARITY(LOWER(p.name), LOWER($2)) > 0.2
+                    ORDER BY SIMILARITY(LOWER(p.name), LOWER($1)) DESC
                     LIMIT 5
-                `, [searchQuery]);
+                `, [searchQuery, normalizedQuery]);
 
-                // Затем ищем по отдельным словам в названии
+                // Ищем по отдельным словам в названии
                 const wordMatchRes = await pool.query(`
                     WITH words AS (
-                        SELECT p.*, c.name as category_name, unnest(string_to_array(p.name, ' ')) as word
+                        SELECT p.*, c.name as category_name, unnest(string_to_array(LOWER(p.name), ' ')) as word
                         FROM products p
                         LEFT JOIN categories c ON p.category_id = c.id
                     )
-                    SELECT DISTINCT p.*, p.category_name, SIMILARITY(p.word, $1) as similarity_score
+                    SELECT DISTINCT p.*, p.category_name, 
+                        SIMILARITY(p.word, $1) as similarity_score
                     FROM words p
-                    WHERE SIMILARITY(p.word, $1) > 0.5
+                    WHERE SIMILARITY(p.word, $1) > 0.2 
+                        OR SIMILARITY(p.word, $2) > 0.2
+                        OR p.word ILIKE '%' || $1 || '%'
+                        OR p.word ILIKE '%' || $2 || '%'
                     ORDER BY similarity_score DESC
                     LIMIT 5
-                `, [searchQuery]);
+                `, [searchQuery, normalizedQuery]);
 
                 // Объединяем результаты
                 const combinedResults = [...fullMatchRes.rows, ...wordMatchRes.rows];
-                // Удаляем дубликаты по article
-                const uniqueResults = Array.from(new Map(combinedResults.map(item => [item.article, item])).values());
+                // Удаляем дубликаты по article и сортируем по релевантности
+                const uniqueResults = Array.from(new Map(combinedResults.map(item => [item.article, item])).values())
+                    .sort((a, b) => {
+                        const scoreA = a.similarity_score || 0;
+                        const scoreB = b.similarity_score || 0;
+                        return scoreB - scoreA;
+                    });
 
                 if (uniqueResults.length > 0) {
                     let responseText = '<b>Возможно, вы имели в виду:</b><br>';
                     uniqueResults.forEach(row => {
+                        // Логируем процент схожести
+                        logger.info(`Найден товар: ${row.name} (арт. ${row.article}), схожесть: ${(row.similarity_score * 100).toFixed(1)}%`);
+                        // Формируем ответ без процентов схожести
                         responseText += `
                             <div style="margin-bottom: 10px; padding: 10px; border: 1px solid #ddd; border-radius: 5px;">
                                 <b>${row.name}</b><br>
                                 Артикул: ${row.article}<br>
                                 Категория: ${row.category_name || 'нет'}<br>
                                 Цена: ${row.price} руб.<br>
-                                В наличии: ${row.stock} шт.<br>
-                                <i>Схожесть: ${(row.similarity_score * 100).toFixed(1)}%</i>
+                                В наличии: ${row.stock} шт.
                             </div>
                         `;
                     });
@@ -750,7 +804,7 @@ io.on('connection', (socket) => {
 
     // Обработка отмены действия
     socket.on('cancel_action', () => {
-        console.log('Получено событие cancel_action'); // Отладка
+        logger.info('Получено событие cancel_action');
         orderState = {}; // Сбрасываем состояние
         socket.emit('response', 'Действие отменено.');
         showMainMenu(false);
@@ -760,5 +814,5 @@ io.on('connection', (socket) => {
 // Запуск сервера
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
-    console.log(`Сервер запущен на порту ${PORT}`);
+    logger.info(`Сервер запущен на порту ${PORT}`);
 });
