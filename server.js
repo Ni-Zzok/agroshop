@@ -27,7 +27,7 @@ const logger = winston.createLogger({
             filename: 'logs/app-%DATE%.log',
             datePattern: 'YYYY-MM-DD',
             maxSize: '20m', // Максимальный размер файла 20 МБ
-            maxFiles: '14d' // Хранить логи за последние 14 дней
+            maxFiles: '30d' // Хранить логи за последние 30 дней
         })
     ]
 });
@@ -182,16 +182,161 @@ app.get('/logout', (req, res) => {
     });
 });
 
+// Маршрут для каталога товаров
 app.get('/catalog', async (req, res) => {
+    const { search, sort, category, inStock } = req.query;
+    const searchQuery = search || '';
+    const sortOption = sort || 'name_asc';
+    const categoryId = category || '';
+    const inStockFilter = inStock || '';
+
     try {
-        const result = await pool.query(`
-            SELECT p.article, p.name, p.description, p.image_url, p.price, p.stock, c.name AS category_name
+        // Получаем список категорий для фильтра
+        const categoriesResult = await pool.query(`
+            SELECT id, name
+            FROM Categories
+            ORDER BY name
+        `);
+
+        // Формируем запрос для товаров
+        let query = '';
+        const values = [];
+        let conditions = [];
+
+        // Если есть фильтр по категории, используем CTE для дочерних категорий
+        if (categoryId) {
+            query = `
+                WITH RECURSIVE category_tree AS (
+                    SELECT id
+                    FROM Categories
+                    WHERE id = $1
+                    UNION ALL
+                    SELECT c.id
+                    FROM Categories c
+                    JOIN category_tree ct ON c.parent_id = ct.id
+                )
+            `;
+            values.push(categoryId);
+        }
+
+        // Основной запрос
+        query += `
+            SELECT p.article, p.name, p.description, p.image_url, p.price, p.stock, c.name AS category_name,
+                   COALESCE(ps.add_to_cart_count, 0) AS popularity
+        `;
+
+        // Добавляем similarity_score только если есть поисковый запрос
+        if (searchQuery) {
+            query += `,
+                   GREATEST(
+                       SIMILARITY(LOWER(p.name), LOWER($${values.length + 1})),
+                       SIMILARITY(LOWER(p.description), LOWER($${values.length + 1})),
+                       SIMILARITY(LOWER(p.name), LOWER($${values.length + 2})),
+                       SIMILARITY(LOWER(p.description), LOWER($${values.length + 2}))
+                   ) AS similarity_score
+            `;
+        } else {
+            query += `,
+                   0 AS similarity_score
+            `;
+        }
+
+        query += `
             FROM Products p
             LEFT JOIN Categories c ON p.category_id = c.id
-        `);
-        res.render('catalog', { products: result.rows, user: req.session.user });
+            LEFT JOIN product_stats ps ON p.article = ps.product_article
+        `;
+
+        // Фильтрация по категории
+        if (categoryId) {
+            conditions.push(`p.category_id IN (SELECT id FROM category_tree)`);
+        }
+
+        // Фильтрация по наличию
+        if (inStockFilter === 'true') {
+            conditions.push(`p.stock > 0`);
+        } else if (inStockFilter === 'false') {
+            conditions.push(`p.stock = 0`);
+        }
+
+        // Поиск
+        if (searchQuery) {
+            // Нормализуем запрос, убирая типичные окончания
+            let normalizedQuery = searchQuery.toLowerCase();
+            const endings = ['ы', 'и', 'ов', 'ами', 'ам', 'ах', 'ей', 'ой', 'а', 'я'];
+            for (const ending of endings) {
+                if (normalizedQuery.endsWith(ending)) {
+                    normalizedQuery = normalizedQuery.slice(0, -ending.length);
+                    break;
+                }
+            }
+
+            // Добавляем условия поиска
+            conditions.push(`
+                (
+                    p.article = $${values.length + 1}
+                    OR SIMILARITY(LOWER(p.name), LOWER($${values.length + 1})) > 0.2
+                    OR SIMILARITY(LOWER(p.description), LOWER($${values.length + 1})) > 0.2
+                    OR SIMILARITY(LOWER(p.name), LOWER($${values.length + 2})) > 0.2
+                    OR SIMILARITY(LOWER(p.description), LOWER($${values.length + 2})) > 0.2
+                    OR EXISTS (
+                        SELECT 1
+                        FROM unnest(string_to_array(LOWER(p.name), ' ')) AS word
+                        WHERE SIMILARITY(word, $${values.length + 1}) > 0.2
+                           OR SIMILARITY(word, $${values.length + 2}) > 0.2
+                           OR word ILIKE '%' || $${values.length + 1} || '%'
+                           OR word ILIKE '%' || $${values.length + 2} || '%'
+                    )
+                )
+            `);
+            values.push(searchQuery.toUpperCase());
+            values.push(normalizedQuery);
+        }
+
+        // Добавляем условия в запрос
+        if (conditions.length > 0) {
+            query += ' WHERE ' + conditions.join(' AND ');
+        }
+
+        // Сортировка
+        if (searchQuery) {
+            query += ' ORDER BY similarity_score DESC';
+        } else {
+            if (sortOption === 'name_asc') {
+                query += ' ORDER BY p.name ASC';
+            } else if (sortOption === 'name_desc') {
+                query += ' ORDER BY p.name DESC';
+            } else if (sortOption === 'price_asc') {
+                query += ' ORDER BY p.price ASC';
+            } else if (sortOption === 'price_desc') {
+                query += ' ORDER BY p.price DESC';
+            } else if (sortOption === 'popularity_asc') {
+                query += ' ORDER BY COALESCE(ps.add_to_cart_count, 0) ASC';
+            } else if (sortOption === 'popularity_desc') {
+                query += ' ORDER BY COALESCE(ps.add_to_cart_count, 0) DESC';
+            }
+        }
+
+        console.log('SQL Query:', query);
+        console.log('Values:', values);
+        const result = await pool.query(query, values);
+
+        // Логируем найденные товары
+        result.rows.forEach(row => {
+            logger.info(`Найден товар: ${row.name} (арт. ${row.article}), схожесть: ${(row.similarity_score * 100).toFixed(1)}%`);
+        });
+
+        res.render('catalog', {
+            products: result.rows,
+            categories: categoriesResult.rows,
+            searchQuery,
+            sort: sortOption,
+            categoryId,
+            inStock: inStockFilter,
+            user: req.session.user || null
+        });
     } catch (err) {
-        logger.error('Ошибка при получении товаров: ' + err.stack);
+        logger.error('Ошибка при загрузке каталога: ' + err.stack);
         res.status(500).send('Ошибка сервера');
     }
 });
@@ -241,35 +386,63 @@ app.get('/cart', async (req, res) => {
     }
 });
 
-app.post('/cart/add', async (req, res) => {
-    if (!req.session.userId) {
-        return res.status(403).send('Необходимо войти в систему. <a href="/login">Войти</a>');
-    }
-
+app.post('/cart/add', requireAuth, async (req, res) => {
     const { article, quantity } = req.body;
     const userId = req.session.userId;
+    const quantityNum = parseInt(quantity);
+
+    if (!article || isNaN(quantityNum) || quantityNum <= 0) {
+        return res.status(400).send('Неверные данные');
+    }
 
     try {
-        const existingItem = await pool.query(`
+        const productResult = await pool.query(`
+            SELECT stock
+            FROM Products
+            WHERE article = $1
+        `, [article]);
+
+        if (productResult.rows.length === 0) {
+            return res.status(404).send('Товар не найден');
+        }
+
+        const stock = productResult.rows[0].stock;
+        if (quantityNum > stock) {
+            return res.status(400).send(`Недостаточно товара на складе. В наличии: ${stock} шт.`);
+        }
+
+        const cartResult = await pool.query(`
             SELECT id, quantity
             FROM Cart
             WHERE user_id = $1 AND product_article = $2
         `, [userId, article]);
 
-        if (existingItem.rows.length > 0) {
-            const newQuantity = existingItem.rows[0].quantity + parseInt(quantity);
+        if (cartResult.rows.length > 0) {
+            const newQuantity = cartResult.rows[0].quantity + quantityNum;
+            if (newQuantity > stock) {
+                return res.status(400).send(`Недостаточно товара на складе. В наличии: ${stock} шт.`);
+            }
             await pool.query(`
                 UPDATE Cart
                 SET quantity = $1
                 WHERE id = $2
-            `, [newQuantity, existingItem.rows[0].id]);
+            `, [newQuantity, cartResult.rows[0].id]);
         } else {
             await pool.query(`
                 INSERT INTO Cart (user_id, product_article, quantity)
                 VALUES ($1, $2, $3)
-            `, [userId, article, parseInt(quantity)]);
+            `, [userId, article, quantityNum]);
         }
-        logger.info(`Товар (арт. ${article}) добавлен в корзину пользователя ${userId}, количество: ${quantity}`);
+
+        // Увеличиваем счётчик добавлений в корзину
+        await pool.query(`
+            INSERT INTO product_stats (product_article, add_to_cart_count)
+            VALUES ($1, 1)
+            ON CONFLICT (product_article)
+            DO UPDATE SET add_to_cart_count = product_stats.add_to_cart_count + 1
+        `, [article]);
+
+        logger.info(`Товар ${article} добавлен в корзину пользователя ${userId}, количество: ${quantityNum}`);
         res.redirect('/cart');
     } catch (err) {
         logger.error('Ошибка при добавлении товара в корзину: ' + err.stack);

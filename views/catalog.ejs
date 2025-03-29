@@ -40,23 +40,73 @@
 
     <main class="content">
         <h1 class="page-title">Каталог товаров</h1>
+
+        <!-- Фильтры, сортировка и поиск -->
+        <div class="catalog-controls">
+            <!-- Форма для поиска, сортировки и фильтров -->
+            <form id="catalogForm" action="/catalog" method="GET" class="catalog-form">
+                <!-- Поиск -->
+                <div class="search-form">
+                    <input type="text" name="search" placeholder="Поиск по названию или описанию..." value="<%= searchQuery || '' %>">
+                    <button type="submit">Найти</button>
+                </div>
+
+                <!-- Сортировка -->
+                <div class="sort-options">
+                    <label for="sort">Сортировать:</label>
+                    <select name="sort" id="sort" onchange="this.form.submit()">
+                        <option value="name_asc" <%= sort === 'name_asc' ? 'selected' : '' %>>По алфавиту (A-Z)</option>
+                        <option value="name_desc" <%= sort === 'name_desc' ? 'selected' : '' %>>По алфавиту (Z-A)</option>
+                        <option value="price_asc" <%= sort === 'price_asc' ? 'selected' : '' %>>По цене (возр.)</option>
+                        <option value="price_desc" <%= sort === 'price_desc' ? 'selected' : '' %>>По цене (убыв.)</option>
+                        <option value="popularity_desc" <%= sort === 'popularity_desc' ? 'selected' : '' %>>По популярности (убыв.)</option>
+                        <option value="popularity_asc" <%= sort === 'popularity_asc' ? 'selected' : '' %>>По популярности (возр.)</option>
+                    </select>
+                </div>
+
+                <!-- Фильтры -->
+                <div class="filter-group">
+                    <label for="category">Категория:</label>
+                    <select name="category" id="category" onchange="this.form.submit()">
+                        <option value="">Все категории</option>
+                        <% categories.forEach(category => { %>
+                            <option value="<%= category.id %>" <%= categoryId == category.id ? 'selected' : '' %>><%= category.name %></option>
+                        <% }); %>
+                    </select>
+                </div>
+                <div class="filter-group">
+                    <label for="inStock">Наличие:</label>
+                    <select name="inStock" id="inStock" onchange="this.form.submit()">
+                        <option value="">Все товары</option>
+                        <option value="true" <%= inStock === 'true' ? 'selected' : '' %>>В наличии</option>
+                        <option value="false" <%= inStock === 'false' ? 'selected' : '' %>>Нет в наличии</option>
+                    </select>
+                </div>
+            </form>
+        </div>
+
+        <!-- Сетка товаров -->
         <div class="catalog-grid">
-            <% products.forEach(product => { %>
-                <a href="/product/<%= product.article %>" class="product-card-link">
-                    <div class="product-card">
-                        <img src="<%= product.image_url %>" alt="<%= product.name %>">
-                        <h3><%= product.name %></h3>
-                        <p class="category">Категория: <%= product.category_name || 'Без категории' %></p>
-                        <p class="price"><%= product.price %> руб.</p>
-                        <p class="stock">В наличии: <%= product.stock %> шт.</p>
-                        <form action="/cart/add" method="POST" class="add-to-cart-form">
-                            <input type="hidden" name="article" value="<%= product.article %>">
-                            <input type="number" name="quantity" value="1" min="1" max="<%= product.stock %>" required>
-                            <button type="submit" class="add-to-cart-btn">Добавить в корзину</button>
-                        </form>
-                    </div>
-                </a>
-            <% }); %>
+            <% if (products.length === 0) { %>
+                <p>Товары не найдены.</p>
+            <% } else { %>
+                <% products.forEach(product => { %>
+                    <a href="/product/<%= product.article %>" class="product-card-link">
+                        <div class="product-card">
+                            <img src="<%= product.image_url %>" alt="<%= product.name %>">
+                            <h3><%= product.name %></h3>
+                            <p class="category">Категория: <%= product.category_name || 'Без категории' %></p>
+                            <p class="price"><%= product.price %> руб.</p>
+                            <p class="stock">В наличии: <%= product.stock %> шт.</p>
+                            <form action="/cart/add" method="POST" class="add-to-cart-form">
+                                <input type="hidden" name="article" value="<%= product.article %>">
+                                <input type="number" name="quantity" value="1" min="1" max="<%= product.stock %>" required>
+                                <button type="submit" class="add-to-cart-btn">Добавить в корзину</button>
+                            </form>
+                        </div>
+                    </a>
+                <% }); %>
+            <% } %>
         </div>
     </main>
 
