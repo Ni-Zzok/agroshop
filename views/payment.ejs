@@ -22,6 +22,9 @@
             font-family: 'Playfair Display', serif;
             margin-top: 0;
         }
+        .order-item {
+            margin-bottom: 10px;
+        }
         .payment-form {
             display: flex;
             flex-direction: column;
@@ -76,12 +79,16 @@
         <h1>Оплата заказа #<%= order.id %></h1>
         <div class="order-details">
             <h2>Детали заказа</h2>
-            <p><b>Товар:</b> <%= order.name %> (арт. <%= order.article %>)</p>
-            <p><b>Количество:</b> <%= order.quantity %> шт.</p>
-            <p><b>Цена за единицу:</b> <%= order.price_at_time %> руб.</p>
+            <% order.items.forEach(item => { %>
+                <div class="order-item">
+                    <p><b>Товар:</b> <%= item.name %> (арт. <%= item.article %>)</p>
+                    <p><b>Количество:</b> <%= item.quantity %> шт.</p>
+                    <p><b>Цена за единицу:</b> <%= item.price_at_time %> руб.</p>
+                </div>
+            <% }); %>
             <p><b>Итого:</b> <%= order.total_price %> руб.</p>
             <p><b>Адрес доставки:</b> <%= order.shipping_address %></p>
-            <p><b>Дата заказа:</b> <%= new Date(order.created_at).toLocaleString('ru-RU') %></p>
+            <p><b>Дата:</b> <%= new Date(order.created_at).toLocaleString('ru-RU') %></p>
         </div>
         <form class="payment-form" action="/payment/<%= order.id %>/process" method="POST">
             <label for="cardNumber">Номер карты:</label>

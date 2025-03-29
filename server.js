@@ -196,6 +196,32 @@ app.get('/catalog', async (req, res) => {
     }
 });
 
+// Маршрут для страницы товара
+app.get('/product/:article', async (req, res) => {
+    const article = req.params.article;
+
+    try {
+        const productResult = await pool.query(`
+            SELECT p.article, p.name, p.description, p.image_url, p.price, p.stock, c.name AS category_name
+            FROM Products p
+            LEFT JOIN Categories c ON p.category_id = c.id
+            WHERE p.article = $1
+        `, [article]);
+
+        if (productResult.rows.length === 0) {
+            return res.status(404).send('Товар не найден');
+        }
+
+        res.render('product', {
+            product: productResult.rows[0],
+            user: req.session.user || null
+        });
+    } catch (err) {
+        logger.error('Ошибка при загрузке страницы товара: ' + err.stack);
+        res.status(500).send('Ошибка сервера');
+    }
+});
+
 app.get('/cart', async (req, res) => {
     try {
         if (!req.session.userId) {
@@ -271,54 +297,82 @@ app.get('/profile', requireAuth, async (req, res) => {
 
 // Маршрут для страницы оплаты
 app.get('/payment/:orderId', requireAuth, async (req, res) => {
-    const orderId = req.params.orderId;
+    const tempOrderId = req.params.orderId;
     const userId = req.session.userId;
 
     try {
-        const orderRes = await pool.query(
-            `SELECT o.id, o.total_price, o.shipping_address, o.created_at, oi.quantity, oi.price_at_time, p.name, p.article 
-             FROM orders o 
-             JOIN order_items oi ON o.id = oi.order_id 
-             JOIN products p ON oi.product_article = p.article 
-             WHERE o.id = $1 AND o.user_id = $2`,
-            [orderId, userId]
-        );
-
-        if (orderRes.rows.length === 0) {
+        // Проверяем, есть ли данные о заказе в сессии
+        if (!req.session.pendingOrder || req.session.pendingOrder.tempOrderId !== tempOrderId || req.session.pendingOrder.userId !== userId) {
             return res.status(404).send('Заказ не найден');
         }
 
-        const order = orderRes.rows[0];
+        const { cartItems, totalPrice, shippingAddress } = req.session.pendingOrder;
+
+        // Формируем объект заказа для шаблона
+        const order = {
+            id: tempOrderId, // Временный ID
+            total_price: totalPrice,
+            shipping_address: shippingAddress,
+            created_at: new Date(),
+            items: cartItems.map(item => ({
+                name: item.name,
+                article: item.article,
+                quantity: item.quantity,
+                price_at_time: item.price
+            }))
+        };
+
         res.render('payment', { order, user: req.session.user });
     } catch (err) {
         logger.error('Ошибка при получении заказа для оплаты: ' + err.stack);
         res.status(500).send('Ошибка сервера');
     }
 });
-
 // Маршрут для обработки оплаты
 app.post('/payment/:orderId/process', requireAuth, async (req, res) => {
-    const orderId = req.params.orderId;
+    const tempOrderId = req.params.orderId;
     const userId = req.session.userId;
 
     try {
-        const orderRes = await pool.query(
-            `SELECT * FROM orders WHERE id = $1 AND user_id = $2`,
-            [orderId, userId]
-        );
-
-        if (orderRes.rows.length === 0) {
+        // Проверяем, есть ли данные о заказе в сессии
+        if (!req.session.pendingOrder || req.session.pendingOrder.tempOrderId !== tempOrderId || req.session.pendingOrder.userId !== userId) {
             return res.status(404).send('Заказ не найден');
         }
 
+        const { shippingAddress } = req.session.pendingOrder;
+
+        // Вызываем хранимую процедуру для создания заказа
+        await pool.query(`
+            CALL create_order($1, $2, NULL, NULL)
+        `, [userId, shippingAddress]);
+
+        // Получаем ID созданного заказа
+        const orderResult = await pool.query(`
+            SELECT id
+            FROM orders
+            WHERE user_id = $1
+            ORDER BY created_at DESC
+            LIMIT 1
+        `, [userId]);
+
+        if (!orderResult.rows[0]) {
+            throw new Error('Не удалось создать заказ');
+        }
+
+        const orderId = orderResult.rows[0].id;
+
         // Здесь должна быть интеграция с платёжной системой (например, Stripe, PayPal).
         // Для примера просто обновим статус заказа.
-        await pool.query(
-            `UPDATE orders SET status = $1, payment_method = $2 WHERE id = $3`,
-            ['completed', 'card', orderId]
-        );
+        await pool.query(`
+            UPDATE orders
+            SET status = $1, payment_method = $2
+            WHERE id = $3
+        `, ['completed', 'card', orderId]);
 
-        logger.info(`Заказ #${orderId} оплачен пользователем ${userId}`);
+        // Очищаем данные о заказе из сессии
+        delete req.session.pendingOrder;
+
+        logger.info(`Заказ #${orderId} оплачен и оформлен пользователем ${userId}`);
         res.redirect('/order-history');
     } catch (err) {
         logger.error('Ошибка при обработке оплаты: ' + err.stack);
@@ -409,6 +463,84 @@ app.post('/profile', requireAuth, async (req, res) => {
         res.redirect('/profile');
     } catch (err) {
         logger.error('Ошибка при обновлении профиля: ' + err.stack);
+        res.status(500).send('Ошибка сервера');
+    }
+});
+
+// Маршрут для страницы оформления заказа
+app.get('/checkout', requireAuth, async (req, res) => {
+    try {
+        const cartResult = await pool.query(`
+            SELECT c.id, c.quantity, p.article, p.name, p.price, p.image_url, p.stock
+            FROM Cart c
+            JOIN Products p ON c.product_article = p.article
+            WHERE c.user_id = $1
+        `, [req.session.userId]);
+
+        const userResult = await pool.query(`
+            SELECT address
+            FROM Users
+            WHERE id = $1
+        `, [req.session.userId]);
+
+        if (cartResult.rows.length === 0) {
+            return res.redirect('/cart');
+        }
+
+        res.render('checkout', {
+            cartItems: cartResult.rows,
+            user: { ...req.session.user, address: userResult.rows[0].address }
+        });
+    } catch (err) {
+        logger.error('Ошибка при загрузке страницы оформления заказа: ' + err.stack);
+        res.status(500).send('Ошибка сервера');
+    }
+});
+
+// Маршрут для обработки оформления заказа
+app.post('/checkout', requireAuth, async (req, res) => {
+    const { shippingAddress } = req.body;
+    const userId = req.session.userId;
+
+    try {
+        // Получаем товары из корзины
+        const cartResult = await pool.query(`
+            SELECT c.id, c.quantity, p.article, p.name, p.price, p.image_url, p.stock
+            FROM Cart c
+            JOIN Products p ON c.product_article = p.article
+            WHERE c.user_id = $1
+        `, [userId]);
+
+        if (cartResult.rows.length === 0) {
+            return res.redirect('/cart');
+        }
+
+        // Проверяем наличие товаров на складе
+        for (const item of cartResult.rows) {
+            if (item.quantity > item.stock) {
+                return res.status(400).send(`Товара "${item.name}" (арт. ${item.article}) недостаточно на складе. В наличии: ${item.stock} шт.`);
+            }
+        }
+
+        // Подсчитываем общую сумму
+        const totalPrice = cartResult.rows.reduce((sum, item) => sum + item.price * item.quantity, 0);
+
+        // Сохраняем данные о заказе в сессии
+        req.session.pendingOrder = {
+            userId: userId,
+            cartItems: cartResult.rows,
+            totalPrice: totalPrice,
+            shippingAddress: shippingAddress
+        };
+
+        // Генерируем временный идентификатор для заказа (для маршрута оплаты)
+        const tempOrderId = Date.now().toString(); // Простой способ, можно заменить на UUID
+        req.session.pendingOrder.tempOrderId = tempOrderId;
+
+        logger.info(`Данные о заказе для пользователя ${userId} сохранены в сессии, tempOrderId: ${tempOrderId}`);
+        res.redirect(`/payment/${tempOrderId}`);
+    } catch (err) {
+        logger.error('Ошибка при подготовке заказа: ' + err.stack);
         res.status(500).send('Ошибка сервера');
     }
 });

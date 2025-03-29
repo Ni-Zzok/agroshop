@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>АгроМир - Оформление заказа</title>
+    <link rel="stylesheet" href="/styles/main.css">
+    <link rel="stylesheet" href="/styles/checkout.css">
+    <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;700&family=Roboto:wght@300;400&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div class="background"></div>
+
+    <header>
+        <div class="auth-section">
+            <div class="user-profile">
+                <img src="<%= user.avatar_url || 'https://via.placeholder.com/30x30?text=Avatar' %>" alt="Аватар" class="avatar">
+                <span><%= user.email %></span>
+                <button class="logout-btn" onclick="window.location.href='/logout'">Выйти</button>
+            </div>
+        </div>
+    </header>
+
+    <nav class="sidebar">
+        <img src="/logo.png" alt="Логотип АгроМир" class="logo">
+        <ul>
+            <li><a href="/">Главная</a></li>
+            <li><a href="/catalog">Каталог товаров</a></li>
+            <li><a href="/cart">Корзина</a></li>
+            <li><a href="/profile">Личный кабинет</a></li>
+        </ul>
+    </nav>
+
+    <main class="content">
+        <h1 class="page-title">Оформление заказа</h1>
+        <div class="order-details">
+            <% let totalPrice = 0; %>
+            <% cartItems.forEach(item => { %>
+                <% const itemTotal = item.price * item.quantity; %>
+                <% totalPrice += itemTotal; %>
+                <div class="cart-item">
+                    <img src="<%= item.image_url %>" alt="<%= item.name %>">
+                    <div class="cart-details">
+                        <h3><%= item.name %></h3>
+                        <p>Артикул: <%= item.article %><br>
+                           Цена: <%= item.price %> руб./шт<br>
+                           Количество: <%= item.quantity %> шт.</p>
+                    </div>
+                    <div class="price-container">
+                        <p class="price">Итого: <%= itemTotal %> руб.</p>
+                    </div>
+                </div>
+            <% }); %>
+            <div class="cart-summary">
+                <h3>Общая сумма: <%= totalPrice %> руб.</h3>
+            </div>
+        </div>
+
+        <div class="address-form">
+            <h2>Адрес доставки</h2>
+            <% if (user.address) { %>
+                <div class="address-options">
+                    <button type="button" onclick="usePreviousAddress()">Использовать сохранённый адрес</button>
+                    <button type="button" onclick="showNewAddressForm()">Ввести новый адрес</button>
+                </div>
+            <% } %>
+            <form id="addressForm" action="/checkout" method="POST" style="display: <%= user.address ? 'none' : 'block' %>;">
+                <div class="form-group">
+                    <label for="shippingAddress">Адрес доставки:</label>
+                    <textarea id="shippingAddress" name="shippingAddress" rows="3" required><%= user.address || '' %></textarea>
+                </div>
+                <div class="form-actions">
+                    <button type="submit" class="confirm-btn">Подтвердить заказ</button>
+                </div>
+            </form>
+        </div>
+    </main>
+
+    <footer>
+        <p>© 2025 АгроМир. Все права защищены.</p>
+    </footer>
+
+    <script>
+        function usePreviousAddress() {
+            document.getElementById('addressForm').submit();
+        }
+
+        function showNewAddressForm() {
+            document.getElementById('addressForm').style.display = 'block';
+            document.querySelector('.address-options').style.display = 'none';
+        }
+    </script>
+</body>
+</html>

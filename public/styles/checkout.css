@@ -1,0 +1,148 @@
+/* Стили для страницы оформления заказа */
+.order-details {
+    background: rgba(255, 255, 255, 0.9);
+    padding: 20px;
+    border-radius: 8px;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+    margin-bottom: 20px;
+}
+
+.cart-item {
+    display: flex;
+    align-items: center;
+    gap: 15px;
+    padding: 10px 0;
+    border-bottom: 1px solid #eee;
+}
+
+.cart-item img {
+    width: 80px;
+    height: 80px;
+    object-fit: cover;
+    border-radius: 5px;
+}
+
+.cart-details h3 {
+    font-family: 'Playfair Display', serif;
+    font-size: 1.2em;
+    margin: 0;
+    color: #2f4f2f;
+}
+
+.cart-details p {
+    font-family: 'Roboto', sans-serif;
+    font-size: 0.95em;
+    margin: 5px 0;
+}
+
+.price-container {
+    margin-left: auto;
+}
+
+.price {
+    font-family: 'Roboto', sans-serif;
+    font-weight: bold;
+    color: #2f4f2f;
+    font-size: 1em;
+}
+
+.cart-summary {
+    text-align: right;
+    margin-top: 15px;
+}
+
+.cart-summary h3 {
+    font-family: 'Playfair Display', serif;
+    font-size: 1.5em;
+    color: #2f4f2f;
+    margin: 0;
+}
+
+.address-form {
+    background: rgba(255, 255, 255, 0.9);
+    padding: 20px;
+    border-radius: 8px;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+}
+
+.address-form h2 {
+    font-family: 'Playfair Display', serif;
+    font-size: 1.8em;
+    color: #2f4f2f;
+    margin-top: 0;
+}
+
+.form-group {
+    margin-bottom: 15px;
+}
+
+.form-group label {
+    font-family: 'Roboto', sans-serif;
+    font-size: 1em;
+    font-weight: bold;
+    color: #333;
+    display: block;
+    margin-bottom: 5px;
+}
+
+.form-group textarea {
+    width: 100%;
+    padding: 8px;
+    border: 1px solid #ddd;
+    border-radius: 5px;
+    font-family: 'Roboto', sans-serif;
+    font-size: 0.95em;
+    resize: vertical;
+}
+
+.form-group textarea:focus {
+    border-color: #3c6f3c;
+    outline: none;
+}
+
+.address-options {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 15px;
+}
+
+.address-options button {
+    padding: 8px 15px;
+    background-color: #3c6f3c;
+    color: white;
+    border: none;
+    border-radius: 5px;
+    cursor: pointer;
+    font-family: 'Roboto', sans-serif;
+    font-size: 0.95em;
+    transition: background-color 0.3s;
+}
+
+.address-options button:hover {
+    background-color: #2f4f2f;
+}
+
+.address-options button:disabled {
+    background-color: #ccc;
+    cursor: not-allowed;
+}
+
+.form-actions {
+    text-align: right;
+}
+
+.confirm-btn {
+    padding: 10px 20px;
+    background-color: #3c6f3c;
+    color: white;
+    border: none;
+    border-radius: 5px;
+    cursor: pointer;
+    font-family: 'Roboto', sans-serif;
+    font-size: 1em;
+    transition: background-color 0.3s;
+}
+
+.confirm-btn:hover {
+    background-color: #2f4f2f;
+}
