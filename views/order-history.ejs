@@ -6,7 +6,10 @@
     <title>АгроМир - История заказов</title>
     <link rel="stylesheet" href="/styles/main.css">
     <link rel="stylesheet" href="/styles/order-history.css">
+    <link rel="stylesheet" href="/styles/chat.css">
     <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;700&family=Roboto:wght@300;400&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+    <link href="https://unpkg.com/aos@2.3.1/dist/aos.css" rel="stylesheet">
 </head>
 <body>
     <div class="background"></div>
@@ -67,8 +70,43 @@
         </div>
     </main>
 
-    <footer>
+    <!-- Чат-бот -->
+    <div class="chat-container minimized">
+        <div class="chat-header">
+            <span>Agro-bot</span>
+            <button class="chat-toggle-btn">−</button>
+        </div>
+        <div class="chat-body" id="chat">
+            <!-- Сообщения будут добавляться сюда -->
+        </div>
+        <div class="chat-footer">
+            <div class="chat-buttons" id="chatButtons"></div>
+            <div class="chat-input" id="chatInput">
+                <input type="text" id="inputField" placeholder="Введи данные...">
+                <button onclick="submitInput()">Отправить</button>
+                <button onclick="cancelAction()" class="cancel-btn">Отмена</button>
+            </div>
+        </div>
+    </div>
+    <button class="chat-open-btn"><i class="fas fa-comment"></i> Чат</button>
+
+    <footer data-aos="fade-up">
         <p>© 2025 АгроМир. Все права защищены.</p>
+        <div class="social-links">
+            <a href="https://instagram.com" target="_blank"><i class="fab fa-instagram"></i></a>
+            <a href="https://t.me" target="_blank"><i class="fab fa-telegram"></i></a>
+            <a href="https://vk.com" target="_blank"><i class="fab fa-vk"></i></a>
+        </div>
     </footer>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="/chat.js"></script>
+    <script src="https://unpkg.com/aos@2.3.1/dist/aos.js"></script>
+    <script>
+        AOS.init({
+            duration: 800,
+            once: true
+        });
+    </script>
 </body>
 </html>

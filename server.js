@@ -82,8 +82,22 @@ app.use(express.static(path.join(__dirname, 'public')));
 app.use(express.urlencoded({ extended: true }));
 
 // Маршруты
-app.get('/', (req, res) => {
-    res.render('index', { user: req.session.user });
+app.get('/', async (req, res) => {
+    try {
+        const categoriesResult = await pool.query(`
+            SELECT id, name, image_url
+            FROM Categories
+            WHERE parent_id IS NULL
+            ORDER BY name
+        `);
+        res.render('index', {
+            user: req.session.user,
+            categories: categoriesResult.rows
+        });
+    } catch (err) {
+        logger.error('Ошибка при загрузке главной страницы: ' + err.stack);
+        res.status(500).send('Ошибка сервера');
+    }
 });
 
 app.get('/login', (req, res) => {

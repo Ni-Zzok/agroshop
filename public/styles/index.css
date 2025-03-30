@@ -6,17 +6,23 @@
     text-shadow: 1px 1px 3px rgba(0, 0, 0, 0.7);
 }
 
-.hero h2 {
+.hero h2, .hero h1.page-title {
     font-family: 'Playfair Display', serif;
     font-size: 3em;
     margin: 0 0 10px;
+    color: #2f4f2f; /* Тёмно-зелёный цвет */
 }
 
 .hero p {
     font-size: 1.4em;
+    color: #2f4f2f; /* Тёмно-зелёный цвет */
 }
 
-/* Контейнеры с информацией */
+/* Остальные стили остаются без изменений */
+.info-section {
+    margin: 40px 0;
+}
+
 .info-container {
     background: rgba(255, 255, 255, 0.9);
     padding: 20px;
@@ -30,9 +36,128 @@
     font-family: 'Playfair Display', serif;
     font-size: 1.8em;
     margin-top: 0;
+    color: #2f4f2f; /* Тёмно-зелёный цвет */
 }
 
 .info-container p {
     font-size: 1.1em;
     line-height: 1.6;
 }
+
+.info-container a {
+    color: #3c6f3c;
+    text-decoration: none;
+}
+
+.info-container a:hover {
+    text-decoration: underline;
+}
+
+/* Популярные категории */
+.categories {
+    margin: 40px 0;
+}
+
+.categories h2 {
+    font-family: 'Playfair Display', serif;
+    font-size: 2.5em;
+    color: #2f4f2f; /* Тёмно-зелёный цвет */
+    text-shadow: 1px 1px 3px rgba(0, 0, 0, 0.7);
+    text-align: center;
+    margin-bottom: 30px;
+}
+
+.category-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+    gap: 20px;
+}
+
+.category-card {
+    position: relative;
+    overflow: hidden;
+    border-radius: 8px;
+    text-align: center;
+    text-decoration: none;
+    color: #fff;
+}
+
+.category-card img {
+    width: 100%;
+    height: 150px;
+    object-fit: cover;
+    transition: transform 0.3s;
+}
+
+.category-card:hover img {
+    transform: scale(1.05);
+}
+
+.category-card h3 {
+    position: absolute;
+    bottom: 10px;
+    left: 0;
+    right: 0;
+    font-family: 'Playfair Display', serif;
+    font-size: 1.5em;
+    background: rgba(0, 0, 0, 0.6);
+    padding: 5px;
+    margin: 0;
+    color: #fff; /* Белый цвет для контраста на тёмном фоне */
+}
+
+/* Призыв к действию */
+.cta {
+    text-align: center;
+    padding: 40px 20px;
+    background: rgba(60, 111, 60, 0.9);
+    border-radius: 8px;
+    margin: 40px 0;
+    color: #fff;
+}
+
+.cta h2 {
+    font-family: 'Playfair Display', serif;
+    font-size: 2.5em;
+    margin-bottom: 15px;
+    color: #fff; /* Белый цвет для контраста на зелёном фоне */
+}
+
+.cta p {
+    font-size: 1.2em;
+    margin-bottom: 20px;
+}
+
+.btn {
+    display: inline-block;
+    padding: 10px 20px;
+    background: #3c6f3c;
+    color: #fff;
+    text-decoration: none;
+    border-radius: 5px;
+    font-family: 'Roboto', sans-serif;
+    font-size: 1em;
+    transition: background-color 0.3s;
+}
+
+.btn:hover {
+    background: #2f4f2f;
+}
+
+/* Социальные сети в футере */
+footer .social-links {
+    margin-top: 10px;
+    display: flex;
+    justify-content: center;
+    gap: 15px;
+}
+
+footer .social-links a {
+    color: #fff;
+    font-size: 1.5em;
+    transition: color 0.3s;
+}
+
+footer .social-links a:hover {
+    color: #3c6f3c;
+} 
