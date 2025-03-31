@@ -81,6 +81,23 @@ app.set('views', path.join(__dirname, 'views'));
 app.use(express.static(path.join(__dirname, 'public')));
 app.use(express.urlencoded({ extended: true }));
 
+// Middleware для проверки роли администратора
+const requireAdmin = async (req, res, next) => {
+    if (!req.session.userId) {
+        return res.status(403).send('Необходимо войти в систему. <a href="/login">Войти</a>');
+    }
+    try {
+        const result = await pool.query('SELECT role FROM Users WHERE id = $1', [req.session.userId]);
+        if (result.rows.length === 0 || result.rows[0].role !== 'admin') {
+            return res.status(403).send('Доступ запрещён. Требуются права администратора. <a href="/">На главную</a>');
+        }
+        next();
+    } catch (err) {
+        logger.error('Ошибка при проверке роли администратора: ' + err.stack);
+        res.status(500).send('Ошибка сервера');
+    }
+};
+
 // Маршруты
 app.get('/', async (req, res) => {
     try {
@@ -90,6 +107,12 @@ app.get('/', async (req, res) => {
             WHERE parent_id IS NULL
             ORDER BY name
         `);
+
+        // Если пользователь — администратор, можно перенаправить на /admin (опционально)
+        // if (req.session.user && req.session.user.role === 'admin') {
+        //     return res.redirect('/admin');
+        // }
+
         res.render('index', {
             user: req.session.user,
             categories: categoriesResult.rows
@@ -112,18 +135,18 @@ app.post('/login', async (req, res) => {
 
     try {
         const result = await pool.query(`
-            SELECT id, email, password, first_name, last_name, avatar_url
+            SELECT id, email, password, first_name, last_name, avatar_url, role
             FROM Users
             WHERE email = $1
         `, [email]);
 
         if (result.rows.length === 0) {
-            return res.render('login', { error: 'Пользователь не найден' });
+            return res.render('login', { error: 'Пользователь не найден', user: null });
         }
 
         const user = result.rows[0];
         if (password !== user.password) {
-            return res.render('login', { error: 'Неверный пароль' });
+            return res.render('login', { error: 'Неверный пароль', user: null });
         }
 
         req.session.userId = user.id;
@@ -131,10 +154,17 @@ app.post('/login', async (req, res) => {
             email: user.email,
             first_name: user.first_name,
             last_name: user.last_name,
-            avatar_url: user.avatar_url
+            avatar_url: user.avatar_url,
+            role: user.role // Добавляем роль в сессию
         };
-        logger.info(`Пользователь ${user.email} вошёл в систему`);
-        res.redirect('/profile');
+        logger.info(`Пользователь ${user.email} (роль: ${user.role}) вошёл в систему`);
+
+        // Перенаправляем в зависимости от роли
+        if (user.role === 'admin') {
+            res.redirect('/admin');
+        } else {
+            res.redirect('/');
+        }
     } catch (err) {
         logger.error('Ошибка при входе: ' + err.stack);
         res.status(500).send('Ошибка сервера');
@@ -1128,6 +1158,214 @@ io.on('connection', (socket) => {
         socket.emit('response', 'Действие отменено.');
         showMainMenu(false);
     });
+});
+
+// Маршрут для админской страницы
+app.get('/admin', requireAdmin, async (req, res) => {
+    try {
+        const users = (await pool.query('SELECT * FROM Users')).rows;
+        const products = (await pool.query('SELECT * FROM Products')).rows;
+        const categories = (await pool.query('SELECT * FROM Categories')).rows;
+        const orders = (await pool.query('SELECT * FROM Orders')).rows;
+        const order_items = (await pool.query('SELECT * FROM Order_Items')).rows;
+        const cart = (await pool.query('SELECT * FROM Cart')).rows;
+        const product_stats = (await pool.query('SELECT * FROM Product_Stats')).rows;
+        const suppliers = (await pool.query('SELECT * FROM Suppliers')).rows;
+        const supplies = (await pool.query('SELECT * FROM Supplies')).rows;
+
+        res.render('admin', {
+            user: req.session.user,
+            users,
+            products,
+            categories,
+            orders,
+            order_items,
+            cart,
+            product_stats,
+            suppliers,
+            supplies
+        });
+    } catch (err) {
+        logger.error('Ошибка при загрузке админской страницы: ' + err.stack);
+        res.status(500).send('Ошибка сервера');
+    }
+});
+
+// Маршруты для добавления записей
+app.post('/admin/:table/add', requireAdmin, async (req, res) => {
+    const table = req.params.table;
+    const data = req.body;
+
+    try {
+        if (table === 'users') {
+            const { email, password, role, first_name, last_name, phone, address, birth_date, gender, newsletter } = data;
+            await pool.query(`
+                INSERT INTO Users (email, password, role, first_name, last_name, phone, address, birth_date, gender, newsletter, registration_date)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, CURRENT_TIMESTAMP)
+            `, [email, password, role, first_name, last_name, phone, address, birth_date, gender, newsletter === 'on']);
+        } else if (table === 'products') {
+            const { article, name, description, category_id, image_url, price, stock } = data;
+            await pool.query(`
+                INSERT INTO Products (article, name, description, category_id, image_url, price, stock)
+                VALUES ($1, $2, $3, $4, $5, $6, $7)
+            `, [article, name, description, category_id, image_url, price, stock]);
+        } else if (table === 'categories') {
+            const { name, image_url, description, parent_id } = data;
+            await pool.query(`
+                INSERT INTO Categories (name, image_url, description, parent_id)
+                VALUES ($1, $2, $3, $4)
+            `, [name, image_url, description, parent_id]);
+        } else if (table === 'orders') {
+            const { user_id, total_price, status, shipping_address, payment_method } = data;
+            await pool.query(`
+                INSERT INTO Orders (user_id, total_price, status, shipping_address, payment_method, created_at)
+                VALUES ($1, $2, $3, $4, $5, CURRENT_TIMESTAMP)
+            `, [user_id, total_price, status, shipping_address, payment_method]);
+        } else if (table === 'order_items') {
+            const { order_id, quantity, price_at_time, product_article } = data;
+            await pool.query(`
+                INSERT INTO Order_Items (order_id, quantity, price_at_time, product_article)
+                VALUES ($1, $2, $3, $4)
+            `, [order_id, quantity, price_at_time, product_article]);
+        } else if (table === 'cart') {
+            const { user_id, quantity, product_article } = data;
+            await pool.query(`
+                INSERT INTO Cart (user_id, quantity, product_article)
+                VALUES ($1, $2, $3)
+            `, [user_id, quantity, product_article]);
+        } else if (table === 'product_stats') {
+            const { product_article, add_to_cart_count } = data;
+            await pool.query(`
+                INSERT INTO Product_Stats (product_article, add_to_cart_count)
+                VALUES ($1, $2)
+            `, [product_article, add_to_cart_count]);
+        } else if (table === 'suppliers') {
+            const { name, contact_person, email, phone, address } = data;
+            await pool.query(`
+                INSERT INTO Suppliers (name, contact_person, email, phone, address)
+                VALUES ($1, $2, $3, $4, $5)
+            `, [name, contact_person, email, phone, address]);
+        } else if (table === 'supplies') {
+            const { supplier_id, quantity, supply_date, price_per_unit, total_cost, product_article } = data;
+            await pool.query(`
+                INSERT INTO Supplies (supplier_id, quantity, supply_date, price_per_unit, total_cost, product_article, created_at)
+                VALUES ($1, $2, $3, $4, $5, $6, CURRENT_TIMESTAMP)
+            `, [supplier_id, quantity, supply_date, price_per_unit, total_cost, product_article]);
+        }
+        res.redirect('/admin');
+    } catch (err) {
+        logger.error(`Ошибка при добавлении записи в ${table}: ` + err.stack);
+        res.status(500).send('Ошибка сервера');
+    }
+});
+
+// Маршруты для редактирования записей
+app.post('/admin/:table/edit', requireAdmin, async (req, res) => {
+    const table = req.params.table;
+    const data = req.body;
+
+    try {
+        if (table === 'users') {
+            const { id, email, password, role, first_name, last_name, phone, address, birth_date, gender, newsletter } = data;
+            await pool.query(`
+                UPDATE Users
+                SET email = $1, password = $2, role = $3, first_name = $4, last_name = $5, phone = $6, address = $7, birth_date = $8, gender = $9, newsletter = $10
+                WHERE id = $11
+            `, [email, password, role, first_name, last_name, phone, address, birth_date, gender, newsletter === 'on', id]);
+        } else if (table === 'products') {
+            const { article, name, description, category_id, image_url, price, stock } = data;
+            await pool.query(`
+                UPDATE Products
+                SET name = $1, description = $2, category_id = $3, image_url = $4, price = $5, stock = $6
+                WHERE article = $7
+            `, [name, description, category_id, image_url, price, stock, article]);
+        } else if (table === 'categories') {
+            const { id, name, image_url, description, parent_id } = data;
+            await pool.query(`
+                UPDATE Categories
+                SET name = $1, image_url = $2, description = $3, parent_id = $4
+                WHERE id = $5
+            `, [name, image_url, description, parent_id, id]);
+        } else if (table === 'orders') {
+            const { id, user_id, total_price, status, shipping_address, payment_method } = data;
+            await pool.query(`
+                UPDATE Orders
+                SET user_id = $1, total_price = $2, status = $3, shipping_address = $4, payment_method = $5
+                WHERE id = $6
+            `, [user_id, total_price, status, shipping_address, payment_method, id]);
+        } else if (table === 'order_items') {
+            const { id, order_id, quantity, price_at_time, product_article } = data;
+            await pool.query(`
+                UPDATE Order_Items
+                SET order_id = $1, quantity = $2, price_at_time = $3, product_article = $4
+                WHERE id = $5
+            `, [order_id, quantity, price_at_time, product_article, id]);
+        } else if (table === 'cart') {
+            const { id, user_id, quantity, product_article } = data;
+            await pool.query(`
+                UPDATE Cart
+                SET user_id = $1, quantity = $2, product_article = $3
+                WHERE id = $4
+            `, [user_id, quantity, product_article, id]);
+        } else if (table === 'product_stats') {
+            const { product_article, add_to_cart_count } = data;
+            await pool.query(`
+                UPDATE Product_Stats
+                SET add_to_cart_count = $1
+                WHERE product_article = $2
+            `, [add_to_cart_count, product_article]);
+        } else if (table === 'suppliers') {
+            const { id, name, contact_person, email, phone, address } = data;
+            await pool.query(`
+                UPDATE Suppliers
+                SET name = $1, contact_person = $2, email = $3, phone = $4, address = $5
+                WHERE id = $6
+            `, [name, contact_person, email, phone, address, id]);
+        } else if (table === 'supplies') {
+            const { id, supplier_id, quantity, supply_date, price_per_unit, total_cost, product_article } = data;
+            await pool.query(`
+                UPDATE Supplies
+                SET supplier_id = $1, quantity = $2, supply_date = $3, price_per_unit = $4, total_cost = $5, product_article = $6
+                WHERE id = $7
+            `, [supplier_id, quantity, supply_date, price_per_unit, total_cost, product_article, id]);
+        }
+        res.redirect('/admin');
+    } catch (err) {
+        logger.error(`Ошибка при редактировании записи в ${table}: ` + err.stack);
+        res.status(500).send('Ошибка сервера');
+    }
+});
+
+// Маршруты для удаления записей
+app.post('/admin/:table/delete', requireAdmin, async (req, res) => {
+    const table = req.params.table;
+    const { id } = req.body;
+
+    try {
+        if (table === 'users') {
+            await pool.query('DELETE FROM Users WHERE id = $1', [id]);
+        } else if (table === 'products') {
+            await pool.query('DELETE FROM Products WHERE article = $1', [id]);
+        } else if (table === 'categories') {
+            await pool.query('DELETE FROM Categories WHERE id = $1', [id]);
+        } else if (table === 'orders') {
+            await pool.query('DELETE FROM Orders WHERE id = $1', [id]);
+        } else if (table === 'order_items') {
+            await pool.query('DELETE FROM Order_Items WHERE id = $1', [id]);
+        } else if (table === 'cart') {
+            await pool.query('DELETE FROM Cart WHERE id = $1', [id]);
+        } else if (table === 'product_stats') {
+            await pool.query('DELETE FROM Product_Stats WHERE product_article = $1', [id]);
+        } else if (table === 'suppliers') {
+            await pool.query('DELETE FROM Suppliers WHERE id = $1', [id]);
+        } else if (table === 'supplies') {
+            await pool.query('DELETE FROM Supplies WHERE id = $1', [id]);
+        }
+        res.status(200).send('Запись удалена');
+    } catch (err) {
+        logger.error(`Ошибка при удалении записи из ${table}: ` + err.stack);
+        res.status(500).send('Ошибка сервера');
+    }
 });
 
 // Запуск сервера
