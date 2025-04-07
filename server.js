@@ -4,9 +4,11 @@ const { Server } = require('socket.io');
 const path = require('path');
 const { Pool } = require('pg');
 const session = require('express-session');
-const winston = require('winston'); // Добавляем библиотеку для логирования
+const winston = require('winston');
 const DailyRotateFile = require('winston-daily-rotate-file');
-
+const bcrypt = require('bcrypt');
+const cookieParser = require('cookie-parser');
+const schedule = require('node-schedule');
 
 const app = express();
 const server = http.createServer(app);
@@ -26,10 +28,42 @@ const logger = winston.createLogger({
         new DailyRotateFile({
             filename: 'logs/app-%DATE%.log',
             datePattern: 'YYYY-MM-DD',
-            maxSize: '20m', // Максимальный размер файла 20 МБ
-            maxFiles: '30d' // Хранить логи за последние 30 дней
+            maxSize: '20m',
+            maxFiles: '30d'
         })
     ]
+});
+
+// Логгер для статистики посещений и заказов
+const statsLogger = winston.createLogger({
+    level: 'info',
+    format: winston.format.json(),
+    transports: [
+        new DailyRotateFile({
+            filename: 'logs/stats-%DATE%.log',
+            datePattern: 'YYYY-MM-DD',
+            maxSize: '20m',
+            maxFiles: '30d'
+        })
+    ]
+});
+
+// Настройка подключения к PostgreSQL
+const pool = new Pool({
+    user: 'postgres',
+    host: 'localhost',
+    database: 'agroshop',
+    password: '2264',
+    port: 5433
+});
+
+pool.connect((err, client, release) => {
+    if (err) {
+        logger.error('Ошибка подключения к базе данных: ' + err.stack);
+        return;
+    }
+    logger.info('Успешно подключено к базе данных PostgreSQL');
+    release();
 });
 
 // Настройка сессий
@@ -40,7 +74,17 @@ const sessionMiddleware = session({
     cookie: { secure: false }
 });
 
+// Переменные для хранения статистики в памяти
+let dailyStats = {
+    visits: 0,
+    productOrders: {}
+};
+
+// Middleware
 app.use(sessionMiddleware);
+app.use(cookieParser());
+app.use(express.static(path.join(__dirname, 'public')));
+app.use(express.urlencoded({ extended: true }));
 
 // Передаем сессии в Socket.IO
 io.use((socket, next) => {
@@ -54,32 +98,6 @@ const requireAuth = (req, res, next) => {
     }
     next();
 };
-
-// Настройка подключения к PostgreSQL
-const pool = new Pool({
-    user: 'postgres',
-    host: 'localhost',
-    database: 'agroshop',
-    password: '2264',
-    port: 5433,
-});
-
-pool.connect((err, client, release) => {
-    if (err) {
-        logger.error('Ошибка подключения к базе данных: ' + err.stack);
-        return;
-    }
-    logger.info('Успешно подключено к базе данных PostgreSQL');
-    release();
-});
-
-// Настройка шаблонизатора EJS
-app.set('view engine', 'ejs');
-app.set('views', path.join(__dirname, 'views'));
-
-// Настройка статических файлов
-app.use(express.static(path.join(__dirname, 'public')));
-app.use(express.urlencoded({ extended: true }));
 
 // Middleware для проверки роли администратора
 const requireAdmin = async (req, res, next) => {
@@ -98,7 +116,39 @@ const requireAdmin = async (req, res, next) => {
     }
 };
 
-// Маршруты
+// Middleware для подсчета уникальных посещений
+app.use((req, res, next) => {
+    const visitTracked = req.cookies['visitTracked'];
+    if (!visitTracked) {
+        dailyStats.visits++;
+        res.cookie('visitTracked', 'true', {
+            maxAge: 24 * 60 * 60 * 1000,
+            httpOnly: true
+        });
+    }
+    next();
+});
+
+// Настройка шаблонизатора EJS
+app.set('view engine', 'ejs');
+app.set('views', path.join(__dirname, 'views'));
+
+// Функция для записи статистики в лог-файл
+function logDailyStats() {
+    statsLogger.info(dailyStats);
+    dailyStats = {
+        visits: 0,
+        productOrders: {}
+    };
+}
+
+// Планировщик для записи статистики каждый день в полночь
+schedule.scheduleJob('0 0 * * *', () => {
+    logDailyStats();
+    logger.info('Ежедневная статистика записана в лог-файл');
+});
+
+// Основные маршруты
 app.get('/', async (req, res) => {
     try {
         const categoriesResult = await pool.query(`
@@ -107,12 +157,6 @@ app.get('/', async (req, res) => {
             WHERE parent_id IS NULL
             ORDER BY name
         `);
-
-        // Если пользователь — администратор, можно перенаправить на /admin (опционально)
-        // if (req.session.user && req.session.user.role === 'admin') {
-        //     return res.redirect('/admin');
-        // }
-
         res.render('index', {
             user: req.session.user,
             categories: categoriesResult.rows
@@ -132,34 +176,34 @@ app.get('/login', (req, res) => {
 
 app.post('/login', async (req, res) => {
     const { email, password } = req.body;
-
     try {
+        logger.info(`Попытка входа: email=${email}, password=${password}`);
         const result = await pool.query(`
             SELECT id, email, password, first_name, last_name, avatar_url, role
             FROM Users
             WHERE email = $1
         `, [email]);
-
         if (result.rows.length === 0) {
+            logger.warn(`Пользователь с email ${email} не найден`);
             return res.render('login', { error: 'Пользователь не найден', user: null });
         }
-
         const user = result.rows[0];
-        if (password !== user.password) {
+        logger.info(`Найден пользователь: email=${user.email}, хранимый пароль=${user.password}`);
+        const match = await bcrypt.compare(password, user.password);
+        logger.info(`Результат сравнения паролей: match=${match}`);
+        if (!match) {
+            logger.warn(`Неверный пароль для пользователя ${email}`);
             return res.render('login', { error: 'Неверный пароль', user: null });
         }
-
         req.session.userId = user.id;
         req.session.user = {
             email: user.email,
             first_name: user.first_name,
             last_name: user.last_name,
             avatar_url: user.avatar_url,
-            role: user.role // Добавляем роль в сессию
+            role: user.role
         };
         logger.info(`Пользователь ${user.email} (роль: ${user.role}) вошёл в систему`);
-
-        // Перенаправляем в зависимости от роли
         if (user.role === 'admin') {
             res.redirect('/admin');
         } else {
@@ -180,34 +224,37 @@ app.get('/register', (req, res) => {
 
 app.post('/register', async (req, res) => {
     const { email, password, firstName, lastName } = req.body;
-
+    const saltRounds = 10;
     try {
         const existingUser = await pool.query(`
             SELECT id
             FROM Users
             WHERE email = $1
         `, [email]);
-
         if (existingUser.rows.length > 0) {
-            return res.render('register', { error: 'Пользователь с таким email уже существует' });
+            return res.render('register', { error: 'Пользователь с таким email уже существует', user: null });
         }
-
+        const hashedPassword = await bcrypt.hash(password, saltRounds);
         const result = await pool.query(`
             INSERT INTO Users (email, password, first_name, last_name, role, registration_date)
             VALUES ($1, $2, $3, $4, 'user', CURRENT_TIMESTAMP)
             RETURNING id, email, first_name, last_name
-        `, [email, password, firstName, lastName]);
-
+        `, [email, hashedPassword, firstName, lastName]);
         const user = result.rows[0];
         req.session.userId = user.id;
         req.session.user = {
             email: user.email,
             first_name: user.first_name,
             last_name: user.last_name,
-            avatar_url: null
+            avatar_url: null,
+            role: 'user'
         };
         logger.info(`Новый пользователь зарегистрирован: ${user.email}`);
-        res.redirect('/profile');
+        if (user.role === 'admin') {
+            res.redirect('/admin');
+        } else {
+            res.redirect('/');
+        }
     } catch (err) {
         logger.error('Ошибка при регистрации: ' + err.stack);
         res.status(500).send('Ошибка сервера');
@@ -226,28 +273,22 @@ app.get('/logout', (req, res) => {
     });
 });
 
-// Маршрут для каталога товаров
+// Маршруты каталога и товаров
 app.get('/catalog', async (req, res) => {
     const { search, sort, category, inStock } = req.query;
     const searchQuery = search || '';
     const sortOption = sort || 'name_asc';
     const categoryId = category || '';
     const inStockFilter = inStock || '';
-
     try {
-        // Получаем список категорий для фильтра
         const categoriesResult = await pool.query(`
             SELECT id, name
             FROM Categories
             ORDER BY name
         `);
-
-        // Формируем запрос для товаров
         let query = '';
         const values = [];
         let conditions = [];
-
-        // Если есть фильтр по категории, используем CTE для дочерних категорий
         if (categoryId) {
             query = `
                 WITH RECURSIVE category_tree AS (
@@ -262,14 +303,10 @@ app.get('/catalog', async (req, res) => {
             `;
             values.push(categoryId);
         }
-
-        // Основной запрос
         query += `
             SELECT p.article, p.name, p.description, p.image_url, p.price, p.stock, c.name AS category_name,
                    COALESCE(ps.add_to_cart_count, 0) AS popularity
         `;
-
-        // Добавляем similarity_score только если есть поисковый запрос
         if (searchQuery) {
             query += `,
                    GREATEST(
@@ -284,28 +321,20 @@ app.get('/catalog', async (req, res) => {
                    0 AS similarity_score
             `;
         }
-
         query += `
             FROM Products p
             LEFT JOIN Categories c ON p.category_id = c.id
             LEFT JOIN product_stats ps ON p.article = ps.product_article
         `;
-
-        // Фильтрация по категории
         if (categoryId) {
             conditions.push(`p.category_id IN (SELECT id FROM category_tree)`);
         }
-
-        // Фильтрация по наличию
         if (inStockFilter === 'true') {
             conditions.push(`p.stock > 0`);
         } else if (inStockFilter === 'false') {
             conditions.push(`p.stock = 0`);
         }
-
-        // Поиск
         if (searchQuery) {
-            // Нормализуем запрос, убирая типичные окончания
             let normalizedQuery = searchQuery.toLowerCase();
             const endings = ['ы', 'и', 'ов', 'ами', 'ам', 'ах', 'ей', 'ой', 'а', 'я'];
             for (const ending of endings) {
@@ -314,8 +343,6 @@ app.get('/catalog', async (req, res) => {
                     break;
                 }
             }
-
-            // Добавляем условия поиска
             conditions.push(`
                 (
                     p.article = $${values.length + 1}
@@ -336,13 +363,9 @@ app.get('/catalog', async (req, res) => {
             values.push(searchQuery.toUpperCase());
             values.push(normalizedQuery);
         }
-
-        // Добавляем условия в запрос
         if (conditions.length > 0) {
             query += ' WHERE ' + conditions.join(' AND ');
         }
-
-        // Сортировка
         if (searchQuery) {
             query += ' ORDER BY similarity_score DESC';
         } else {
@@ -360,16 +383,12 @@ app.get('/catalog', async (req, res) => {
                 query += ' ORDER BY COALESCE(ps.add_to_cart_count, 0) DESC';
             }
         }
-
         console.log('SQL Query:', query);
         console.log('Values:', values);
         const result = await pool.query(query, values);
-
-        // Логируем найденные товары
         result.rows.forEach(row => {
             logger.info(`Найден товар: ${row.name} (арт. ${row.article}), схожесть: ${(row.similarity_score * 100).toFixed(1)}%`);
         });
-
         res.render('catalog', {
             products: result.rows,
             categories: categoriesResult.rows,
@@ -385,10 +404,8 @@ app.get('/catalog', async (req, res) => {
     }
 });
 
-// Маршрут для страницы товара
 app.get('/product/:article', async (req, res) => {
     const article = req.params.article;
-
     try {
         const productResult = await pool.query(`
             SELECT p.article, p.name, p.description, p.image_url, p.price, p.stock, c.name AS category_name
@@ -396,11 +413,9 @@ app.get('/product/:article', async (req, res) => {
             LEFT JOIN Categories c ON p.category_id = c.id
             WHERE p.article = $1
         `, [article]);
-
         if (productResult.rows.length === 0) {
             return res.status(404).send('Товар не найден');
         }
-
         res.render('product', {
             product: productResult.rows[0],
             user: req.session.user || null
@@ -411,12 +426,12 @@ app.get('/product/:article', async (req, res) => {
     }
 });
 
+// Маршруты корзины
 app.get('/cart', async (req, res) => {
     try {
         if (!req.session.userId) {
             return res.status(403).send('Необходимо войти в систему. <a href="/login">Войти</a>');
         }
-
         const result = await pool.query(`
             SELECT c.id, c.quantity, p.article, p.name, p.price, p.image_url
             FROM Cart c
@@ -434,33 +449,27 @@ app.post('/cart/add', requireAuth, async (req, res) => {
     const { article, quantity } = req.body;
     const userId = req.session.userId;
     const quantityNum = parseInt(quantity);
-
     if (!article || isNaN(quantityNum) || quantityNum <= 0) {
         return res.status(400).send('Неверные данные');
     }
-
     try {
         const productResult = await pool.query(`
             SELECT stock
             FROM Products
             WHERE article = $1
         `, [article]);
-
         if (productResult.rows.length === 0) {
             return res.status(404).send('Товар не найден');
         }
-
         const stock = productResult.rows[0].stock;
         if (quantityNum > stock) {
             return res.status(400).send(`Недостаточно товара на складе. В наличии: ${stock} шт.`);
         }
-
         const cartResult = await pool.query(`
             SELECT id, quantity
             FROM Cart
             WHERE user_id = $1 AND product_article = $2
         `, [userId, article]);
-
         if (cartResult.rows.length > 0) {
             const newQuantity = cartResult.rows[0].quantity + quantityNum;
             if (newQuantity > stock) {
@@ -477,15 +486,12 @@ app.post('/cart/add', requireAuth, async (req, res) => {
                 VALUES ($1, $2, $3)
             `, [userId, article, quantityNum]);
         }
-
-        // Увеличиваем счётчик добавлений в корзину
         await pool.query(`
             INSERT INTO product_stats (product_article, add_to_cart_count)
             VALUES ($1, 1)
             ON CONFLICT (product_article)
             DO UPDATE SET add_to_cart_count = product_stats.add_to_cart_count + 1
         `, [article]);
-
         logger.info(`Товар ${article} добавлен в корзину пользователя ${userId}, количество: ${quantityNum}`);
         res.redirect('/cart');
     } catch (err) {
@@ -494,6 +500,7 @@ app.post('/cart/add', requireAuth, async (req, res) => {
     }
 });
 
+// Маршруты профиля
 app.get('/profile', requireAuth, async (req, res) => {
     try {
         const result = await pool.query(`
@@ -501,7 +508,6 @@ app.get('/profile', requireAuth, async (req, res) => {
             FROM Users
             WHERE id = $1
         `, [req.session.userId]);
-
         if (result.rows.length === 0) {
             return res.status(404).send('Пользователь не найден');
         }
@@ -512,117 +518,27 @@ app.get('/profile', requireAuth, async (req, res) => {
     }
 });
 
-// Маршрут для страницы оплаты
-app.get('/payment/:orderId', requireAuth, async (req, res) => {
-    const tempOrderId = req.params.orderId;
-    const userId = req.session.userId;
-
-    try {
-        // Проверяем, есть ли данные о заказе в сессии
-        if (!req.session.pendingOrder || req.session.pendingOrder.tempOrderId !== tempOrderId || req.session.pendingOrder.userId !== userId) {
-            return res.status(404).send('Заказ не найден');
-        }
-
-        const { cartItems, totalPrice, shippingAddress } = req.session.pendingOrder;
-
-        // Формируем объект заказа для шаблона
-        const order = {
-            id: tempOrderId, // Временный ID
-            total_price: totalPrice,
-            shipping_address: shippingAddress,
-            created_at: new Date(),
-            items: cartItems.map(item => ({
-                name: item.name,
-                article: item.article,
-                quantity: item.quantity,
-                price_at_time: item.price
-            }))
-        };
-
-        res.render('payment', { order, user: req.session.user });
-    } catch (err) {
-        logger.error('Ошибка при получении заказа для оплаты: ' + err.stack);
-        res.status(500).send('Ошибка сервера');
-    }
-});
-// Маршрут для обработки оплаты
-app.post('/payment/:orderId/process', requireAuth, async (req, res) => {
-    const tempOrderId = req.params.orderId;
-    const userId = req.session.userId;
-
-    try {
-        // Проверяем, есть ли данные о заказе в сессии
-        if (!req.session.pendingOrder || req.session.pendingOrder.tempOrderId !== tempOrderId || req.session.pendingOrder.userId !== userId) {
-            return res.status(404).send('Заказ не найден');
-        }
-
-        const { shippingAddress } = req.session.pendingOrder;
-
-        // Вызываем хранимую процедуру для создания заказа
-        await pool.query(`
-            CALL create_order($1, $2, NULL, NULL)
-        `, [userId, shippingAddress]);
-
-        // Получаем ID созданного заказа
-        const orderResult = await pool.query(`
-            SELECT id
-            FROM orders
-            WHERE user_id = $1
-            ORDER BY created_at DESC
-            LIMIT 1
-        `, [userId]);
-
-        if (!orderResult.rows[0]) {
-            throw new Error('Не удалось создать заказ');
-        }
-
-        const orderId = orderResult.rows[0].id;
-
-        // Здесь должна быть интеграция с платёжной системой (например, Stripe, PayPal).
-        // Для примера просто обновим статус заказа.
-        await pool.query(`
-            UPDATE orders
-            SET status = $1, payment_method = $2
-            WHERE id = $3
-        `, ['completed', 'card', orderId]);
-
-        // Очищаем данные о заказе из сессии
-        delete req.session.pendingOrder;
-
-        logger.info(`Заказ #${orderId} оплачен и оформлен пользователем ${userId}`);
-        res.redirect('/order-history');
-    } catch (err) {
-        logger.error('Ошибка при обработке оплаты: ' + err.stack);
-        res.status(500).send('Ошибка сервера');
-    }
-});
-
 app.post('/profile', requireAuth, async (req, res) => {
-    const {
-        email, firstName, lastName, phone, address, birthDate, gender, newsletter, newPassword, currentPassword
-    } = req.body;
+    const { email, firstName, lastName, phone, address, birthDate, gender, newsletter, newPassword, currentPassword } = req.body;
     const userId = req.session.userId;
-
+    const saltRounds = 10;
     try {
         const userResult = await pool.query(`
             SELECT password
             FROM Users
             WHERE id = $1
         `, [userId]);
-
         if (userResult.rows.length === 0) {
             return res.status(404).send('Пользователь не найден');
         }
-
         const currentPasswordInDb = userResult.rows[0].password;
-        if (currentPassword !== currentPasswordInDb) {
+        const match = await bcrypt.compare(currentPassword, currentPasswordInDb);
+        if (!match) {
             return res.status(400).send('Неверный текущий пароль');
         }
-
         const updateFields = [];
         const values = [];
         let paramIndex = 1;
-
         if (email) {
             updateFields.push(`email = $${paramIndex++}`);
             values.push(email);
@@ -653,38 +569,43 @@ app.post('/profile', requireAuth, async (req, res) => {
         }
         updateFields.push(`newsletter = $${paramIndex++}`);
         values.push(newsletter === 'on');
-
         if (newPassword) {
+            const hashedNewPassword = await bcrypt.hash(newPassword, saltRounds);
             updateFields.push(`password = $${paramIndex++}`);
-            values.push(newPassword);
+            values.push(hashedNewPassword);
         }
-
         values.push(userId);
-
         if (updateFields.length > 0) {
             await pool.query(`
                 UPDATE Users
                 SET ${updateFields.join(', ')}
                 WHERE id = $${paramIndex}
             `, values);
-
             const updatedUser = await pool.query(`
-                SELECT email, first_name, last_name, avatar_url
+                SELECT email, first_name, last_name, avatar_url, role
                 FROM Users
                 WHERE id = $1
             `, [userId]);
-            req.session.user = updatedUser.rows[0];
+            req.session.user = {
+                email: updatedUser.rows[0].email,
+                first_name: updatedUser.rows[0].first_name,
+                last_name: updatedUser.rows[0].last_name,
+                avatar_url: updatedUser.rows[0].avatar_url,
+                role: updatedUser.rows[0].role
+            };
             logger.info(`Профиль пользователя ${userId} обновлён`);
         }
-
         res.redirect('/profile');
+        if (newPassword) {
+            logger.info(`Пользователь ${userId} обновил пароль`);
+        }
     } catch (err) {
         logger.error('Ошибка при обновлении профиля: ' + err.stack);
         res.status(500).send('Ошибка сервера');
     }
 });
 
-// Маршрут для страницы оформления заказа
+// Маршруты оформления заказа
 app.get('/checkout', requireAuth, async (req, res) => {
     try {
         const cartResult = await pool.query(`
@@ -693,17 +614,14 @@ app.get('/checkout', requireAuth, async (req, res) => {
             JOIN Products p ON c.product_article = p.article
             WHERE c.user_id = $1
         `, [req.session.userId]);
-
         const userResult = await pool.query(`
             SELECT address
             FROM Users
             WHERE id = $1
         `, [req.session.userId]);
-
         if (cartResult.rows.length === 0) {
             return res.redirect('/cart');
         }
-
         res.render('checkout', {
             cartItems: cartResult.rows,
             user: { ...req.session.user, address: userResult.rows[0].address }
@@ -714,46 +632,33 @@ app.get('/checkout', requireAuth, async (req, res) => {
     }
 });
 
-// Маршрут для обработки оформления заказа
 app.post('/checkout', requireAuth, async (req, res) => {
     const { shippingAddress } = req.body;
     const userId = req.session.userId;
-
     try {
-        // Получаем товары из корзины
         const cartResult = await pool.query(`
             SELECT c.id, c.quantity, p.article, p.name, p.price, p.image_url, p.stock
             FROM Cart c
             JOIN Products p ON c.product_article = p.article
             WHERE c.user_id = $1
         `, [userId]);
-
         if (cartResult.rows.length === 0) {
             return res.redirect('/cart');
         }
-
-        // Проверяем наличие товаров на складе
         for (const item of cartResult.rows) {
             if (item.quantity > item.stock) {
                 return res.status(400).send(`Товара "${item.name}" (арт. ${item.article}) недостаточно на складе. В наличии: ${item.stock} шт.`);
             }
         }
-
-        // Подсчитываем общую сумму
         const totalPrice = cartResult.rows.reduce((sum, item) => sum + item.price * item.quantity, 0);
-
-        // Сохраняем данные о заказе в сессии
         req.session.pendingOrder = {
             userId: userId,
             cartItems: cartResult.rows,
             totalPrice: totalPrice,
             shippingAddress: shippingAddress
         };
-
-        // Генерируем временный идентификатор для заказа (для маршрута оплаты)
-        const tempOrderId = Date.now().toString(); // Простой способ, можно заменить на UUID
+        const tempOrderId = Date.now().toString();
         req.session.pendingOrder.tempOrderId = tempOrderId;
-
         logger.info(`Данные о заказе для пользователя ${userId} сохранены в сессии, tempOrderId: ${tempOrderId}`);
         res.redirect(`/payment/${tempOrderId}`);
     } catch (err) {
@@ -762,6 +667,77 @@ app.post('/checkout', requireAuth, async (req, res) => {
     }
 });
 
+// Маршруты оплаты
+app.get('/payment/:orderId', requireAuth, async (req, res) => {
+    const tempOrderId = req.params.orderId;
+    const userId = req.session.userId;
+    try {
+        if (!req.session.pendingOrder || req.session.pendingOrder.tempOrderId !== tempOrderId || req.session.pendingOrder.userId !== userId) {
+            return res.status(404).send('Заказ не найден');
+        }
+        const { cartItems, totalPrice, shippingAddress } = req.session.pendingOrder;
+        const order = {
+            id: tempOrderId,
+            total_price: totalPrice,
+            shipping_address: shippingAddress,
+            created_at: new Date(),
+            items: cartItems.map(item => ({
+                name: item.name,
+                article: item.article,
+                quantity: item.quantity,
+                price_at_time: item.price
+            }))
+        };
+        res.render('payment', { order, user: req.session.user });
+    } catch (err) {
+        logger.error('Ошибка при получении заказа для оплаты: ' + err.stack);
+        res.status(500).send('Ошибка сервера');
+    }
+});
+
+app.post('/payment/:orderId/process', requireAuth, async (req, res) => {
+    const tempOrderId = req.params.orderId;
+    const userId = req.session.userId;
+    try {
+        if (!req.session.pendingOrder || req.session.pendingOrder.tempOrderId !== tempOrderId || req.session.pendingOrder.userId !== userId) {
+            return res.status(404).send('Заказ не найден');
+        }
+        const { shippingAddress } = req.session.pendingOrder;
+        await pool.query(`
+            CALL create_order($1, $2, NULL, NULL)
+        `, [userId, shippingAddress]);
+        const orderResult = await pool.query(`
+            SELECT id
+            FROM orders
+            WHERE user_id = $1
+            ORDER BY created_at DESC
+            LIMIT 1
+        `, [userId]);
+        if (!orderResult.rows[0]) {
+            throw new Error('Не удалось создать заказ');
+        }
+        const orderId = orderResult.rows[0].id;
+        await pool.query(`
+            UPDATE orders
+            SET status = $1, payment_method = $2
+            WHERE id = $3
+        `, ['completed', 'card', orderId]);
+        const cartItems = req.session.pendingOrder.cartItems;
+        cartItems.forEach(item => {
+            dailyStats.productOrders[item.article] = (dailyStats.productOrders[item.article] || 0) + item.quantity;
+        });
+        console.log(`Заказ обработан. Текущая статистика: ${JSON.stringify(dailyStats)}`);
+        statsLogger.info(dailyStats);
+        delete req.session.pendingOrder;
+        logger.info(`Заказ #${orderId} оплачен и оформлен пользователем ${userId}`);
+        res.redirect('/order-history');
+    } catch (err) {
+        logger.error('Ошибка при обработке оплаты: ' + err.stack);
+        res.status(500).send('Ошибка сервера');
+    }
+});
+
+// Маршруты истории заказов
 app.get('/order-history', requireAuth, async (req, res) => {
     try {
         const ordersResult = await pool.query(`
@@ -770,7 +746,6 @@ app.get('/order-history', requireAuth, async (req, res) => {
             WHERE user_id = $1
             ORDER BY created_at DESC
         `, [req.session.userId]);
-
         const orders = ordersResult.rows.map(order => {
             const totalPrice = parseFloat(order.total_price);
             return {
@@ -778,7 +753,6 @@ app.get('/order-history', requireAuth, async (req, res) => {
                 total_price: isNaN(totalPrice) ? 0 : totalPrice
             };
         });
-
         for (let order of orders) {
             const itemsResult = await pool.query(`
                 SELECT oi.quantity, oi.price_at_time, p.name, p.image_url
@@ -786,7 +760,6 @@ app.get('/order-history', requireAuth, async (req, res) => {
                 JOIN Products p ON oi.product_article = p.article
                 WHERE oi.order_id = $1
             `, [order.id]);
-
             order.items = itemsResult.rows.map(item => {
                 const priceAtTime = parseFloat(item.price_at_time);
                 return {
@@ -795,7 +768,6 @@ app.get('/order-history', requireAuth, async (req, res) => {
                 };
             });
         }
-
         res.render('order-history', { orders, user: req.session.user });
     } catch (err) {
         logger.error('Ошибка при получении истории заказов: ' + err.stack);
@@ -803,12 +775,10 @@ app.get('/order-history', requireAuth, async (req, res) => {
     }
 });
 
-// Логика бота через Socket.IO 
+// Логика бота через Socket.IO
 io.on('connection', (socket) => {
     const userId = socket.request.session?.userId || null;
     logger.info(`Пользователь подключился, userId: ${userId}`);
-
-    // Функция для показа начального меню (без приветственного сообщения)
     const showMainMenu = (withGreeting = true) => {
         if (!userId) {
             if (withGreeting) {
@@ -830,17 +800,10 @@ io.on('connection', (socket) => {
             ]);
         }
     };
-
-    // Показываем начальное меню при подключении (с приветствием)
     showMainMenu(true);
-
-    // Храним состояние заказа
     let orderState = {};
-
-    // Обработка нажатий на кнопки
     socket.on('button_click', async (buttonValue) => {
         logger.info(`Получено событие button_click: ${buttonValue}`);
-
         if (buttonValue === 'search') {
             socket.emit('response', 'Введи название товара или артикул для поиска (например, "Огурец Сюрприз" или "13326"):');
             socket.emit('show_input', { placeholder: 'Название товара или артикул' });
@@ -850,7 +813,6 @@ io.on('connection', (socket) => {
                 showMainMenu(false);
                 return;
             }
-            // Шаг 1: Запрос артикула
             orderState = { step: 'article' };
             socket.emit('response', 'Введи артикул товара для заказа (например, "12345"):');
             socket.emit('show_input', { placeholder: 'Артикул товара' });
@@ -868,7 +830,6 @@ io.on('connection', (socket) => {
                  WHERE o.user_id = $1`,
                 [userId]
             );
-
             if (ordersRes.rows.length > 0) {
                 let responseText = '<b>Ваши заказы:</b><br>';
                 ordersRes.rows.forEach(row => {
@@ -887,7 +848,6 @@ io.on('connection', (socket) => {
             } else {
                 socket.emit('response', 'У вас пока нет заказов.');
             }
-
             showMainMenu(false);
         } else if (buttonValue === 'use_previous_address' && orderState.step === 'address') {
             if (!userId) {
@@ -897,24 +857,19 @@ io.on('connection', (socket) => {
             }
             const userRes = await pool.query('SELECT address FROM users WHERE id = $1', [userId]);
             orderState.address = userRes.rows[0].address;
-
             const totalPrice = orderState.product.price * orderState.quantity;
-
             const orderRes = await pool.query(
                 `INSERT INTO orders (user_id, total_price, status, shipping_address, payment_method, created_at) 
                  VALUES ($1, $2, $3, $4, $5, NOW()) RETURNING id`,
                 [userId, totalPrice, 'pending', orderState.address, 'pending_payment']
             );
             const orderId = orderRes.rows[0].id;
-
             await pool.query(
                 `INSERT INTO order_items (order_id, quantity, price_at_time, product_article) 
                  VALUES ($1, $2, $3, $4)`,
                 [orderId, orderState.quantity, orderState.product.price, orderState.product.article]
             );
-
             await pool.query('UPDATE products SET stock = stock - $1 WHERE article = $2', [orderState.quantity, orderState.product.article]);
-
             const responseText = `
                 <div style="margin-bottom: 10px; padding: 10px; border: 1px solid #ddd; border-radius: 5px;">
                     <b>Заказ успешно оформлен!</b><br>
@@ -929,7 +884,6 @@ io.on('connection', (socket) => {
             `;
             socket.emit('response', responseText);
             logger.info(`Заказ #${orderId} оформлен пользователем ${userId}`);
-
             orderState = {};
             showMainMenu(false);
         } else if (buttonValue === 'new_address' && orderState.step === 'address') {
@@ -937,11 +891,8 @@ io.on('connection', (socket) => {
             socket.emit('show_input', { placeholder: 'Адрес доставки' });
         }
     });
-
-    // Обработка ввода данных
     socket.on('input_submit', async (msg) => {
         logger.info(`Получено событие input_submit: ${msg}`);
-
         if (orderState.step === 'article') {
             if (!userId) {
                 socket.emit('response', 'Для оформления заказа нужно войти в систему. <a href="/login">Войти</a>');
@@ -954,7 +905,6 @@ io.on('connection', (socket) => {
                 socket.emit('show_input', { placeholder: 'Артикул товара' });
                 return;
             }
-
             const productRes = await pool.query('SELECT * FROM products WHERE article = $1', [article]);
             if (productRes.rows.length === 0 || productRes.rows[0].stock <= 0) {
                 socket.emit('response', 'Товар не найден или отсутствует на складе.');
@@ -977,11 +927,9 @@ io.on('connection', (socket) => {
                 socket.emit('show_input', { placeholder: 'Количество' });
                 return;
             }
-
             orderState.quantity = quantity;
             const userRes = await pool.query('SELECT address FROM users WHERE id = $1', [userId]);
             const previousAddress = userRes.rows[0]?.address || null;
-
             orderState.step = 'address';
             if (previousAddress) {
                 socket.emit('response', `Предыдущий адрес доставки: <b>${previousAddress}</b><br>Использовать этот адрес?`);
@@ -1006,26 +954,20 @@ io.on('connection', (socket) => {
                 socket.emit('show_input', { placeholder: 'Адрес доставки' });
                 return;
             }
-
             const totalPrice = orderState.product.price * orderState.quantity;
-
             const orderRes = await pool.query(
                 `INSERT INTO orders (user_id, total_price, status, shipping_address, payment_method, created_at) 
                  VALUES ($1, $2, $3, $4, $5, NOW()) RETURNING id`,
                 [userId, totalPrice, 'pending', orderState.address, 'pending_payment']
             );
             const orderId = orderRes.rows[0].id;
-
             await pool.query(
                 `INSERT INTO order_items (order_id, quantity, price_at_time, product_article) 
                  VALUES ($1, $2, $3, $4)`,
                 [orderId, orderState.quantity, orderState.product.price, orderState.product.article]
             );
-
             await pool.query('UPDATE products SET stock = stock - $1 WHERE article = $2', [orderState.quantity, orderState.product.article]);
-
             await pool.query('UPDATE users SET address = $1 WHERE id = $2', [orderState.address, userId]);
-
             const responseText = `
                 <div style="margin-bottom: 10px; padding: 10px; border: 1px solid #ddd; border-radius: 5px;">
                     <b>Заказ успешно оформлен!</b><br>
@@ -1040,28 +982,22 @@ io.on('connection', (socket) => {
             `;
             socket.emit('response', responseText);
             logger.info(`Заказ #${orderId} оформлен пользователем ${userId}`);
-
             orderState = {};
             showMainMenu(false);
         } else {
-            // Поиск товара
             const searchQuery = msg.trim().toLowerCase();
             if (!searchQuery) {
                 socket.emit('response', 'Укажи, что именно ты хочешь найти. Например: "Огурец Сюрприз" или "13326".');
                 socket.emit('show_input', { placeholder: 'Название товара или артикул' });
                 return;
             }
-
-            // Сначала ищем точное совпадение по артикулу
             const exactMatch = await pool.query(`
                 SELECT p.*, c.name as category_name 
                 FROM products p 
                 LEFT JOIN categories c ON p.category_id = c.id 
                 WHERE p.article = $1
             `, [searchQuery]);
-
             if (exactMatch.rows.length > 0) {
-                // Если найдено точное совпадение по артикулу, показываем только его
                 let responseText = '<b>Найденные товары:</b><br>';
                 exactMatch.rows.forEach(row => {
                     responseText += `
@@ -1076,8 +1012,6 @@ io.on('connection', (socket) => {
                 });
                 socket.emit('response', responseText);
             } else {
-                // Если по артикулу ничего не найдено, ищем по названию
-                // Нормализуем запрос, убирая типичные окончания
                 let normalizedQuery = searchQuery;
                 const endings = ['ы', 'и', 'ов', 'ами', 'ам', 'ах', 'ей', 'ой', 'а', 'я'];
                 for (const ending of endings) {
@@ -1086,8 +1020,6 @@ io.on('connection', (socket) => {
                         break;
                     }
                 }
-
-                // Ищем по полной строке названия с SIMILARITY
                 const fullMatchRes = await pool.query(`
                     SELECT p.*, c.name as category_name, SIMILARITY(p.name, $1) as similarity_score
                     FROM products p 
@@ -1096,8 +1028,6 @@ io.on('connection', (socket) => {
                     ORDER BY SIMILARITY(LOWER(p.name), LOWER($1)) DESC
                     LIMIT 5
                 `, [searchQuery, normalizedQuery]);
-
-                // Ищем по отдельным словам в названии
                 const wordMatchRes = await pool.query(`
                     WITH words AS (
                         SELECT p.*, c.name as category_name, unnest(string_to_array(LOWER(p.name), ' ')) as word
@@ -1114,23 +1044,17 @@ io.on('connection', (socket) => {
                     ORDER BY similarity_score DESC
                     LIMIT 5
                 `, [searchQuery, normalizedQuery]);
-
-                // Объединяем результаты
                 const combinedResults = [...fullMatchRes.rows, ...wordMatchRes.rows];
-                // Удаляем дубликаты по article и сортируем по релевантности
                 const uniqueResults = Array.from(new Map(combinedResults.map(item => [item.article, item])).values())
                     .sort((a, b) => {
                         const scoreA = a.similarity_score || 0;
                         const scoreB = b.similarity_score || 0;
                         return scoreB - scoreA;
                     });
-
                 if (uniqueResults.length > 0) {
                     let responseText = '<b>Возможно, вы имели в виду:</b><br>';
                     uniqueResults.forEach(row => {
-                        // Логируем процент схожести
                         logger.info(`Найден товар: ${row.name} (арт. ${row.article}), схожесть: ${(row.similarity_score * 100).toFixed(1)}%`);
-                        // Формируем ответ без процентов схожести
                         responseText += `
                             <div style="margin-bottom: 10px; padding: 10px; border: 1px solid #ddd; border-radius: 5px;">
                                 <b>${row.name}</b><br>
@@ -1146,21 +1070,18 @@ io.on('connection', (socket) => {
                     socket.emit('response', 'Ничего не найдено. Попробуй уточнить запрос.');
                 }
             }
-
             showMainMenu(false);
         }
     });
-
-    // Обработка отмены действия
     socket.on('cancel_action', () => {
         logger.info('Получено событие cancel_action');
-        orderState = {}; // Сбрасываем состояние
+        orderState = {};
         socket.emit('response', 'Действие отменено.');
         showMainMenu(false);
     });
 });
 
-// Маршрут для админской страницы
+// Маршруты админ-панели
 app.get('/admin', requireAdmin, async (req, res) => {
     try {
         const users = (await pool.query('SELECT * FROM Users')).rows;
@@ -1172,7 +1093,6 @@ app.get('/admin', requireAdmin, async (req, res) => {
         const product_stats = (await pool.query('SELECT * FROM Product_Stats')).rows;
         const suppliers = (await pool.query('SELECT * FROM Suppliers')).rows;
         const supplies = (await pool.query('SELECT * FROM Supplies')).rows;
-
         res.render('admin', {
             user: req.session.user,
             users,
@@ -1191,18 +1111,18 @@ app.get('/admin', requireAdmin, async (req, res) => {
     }
 });
 
-// Маршруты для добавления записей
 app.post('/admin/:table/add', requireAdmin, async (req, res) => {
     const table = req.params.table;
     const data = req.body;
-
+    const saltRounds = 10;
     try {
         if (table === 'users') {
             const { email, password, role, first_name, last_name, phone, address, birth_date, gender, newsletter } = data;
+            const hashedPassword = await bcrypt.hash(password, saltRounds);
             await pool.query(`
                 INSERT INTO Users (email, password, role, first_name, last_name, phone, address, birth_date, gender, newsletter, registration_date)
                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, CURRENT_TIMESTAMP)
-            `, [email, password, role, first_name, last_name, phone, address, birth_date, gender, newsletter === 'on']);
+            `, [email, hashedPassword, role, first_name, last_name, phone, address, birth_date, gender, newsletter === 'on']);
         } else if (table === 'products') {
             const { article, name, description, category_id, image_url, price, stock } = data;
             await pool.query(`
@@ -1259,19 +1179,19 @@ app.post('/admin/:table/add', requireAdmin, async (req, res) => {
     }
 });
 
-// Маршруты для редактирования записей
 app.post('/admin/:table/edit', requireAdmin, async (req, res) => {
     const table = req.params.table;
     const data = req.body;
-
+    const saltRounds = 10;
     try {
         if (table === 'users') {
             const { id, email, password, role, first_name, last_name, phone, address, birth_date, gender, newsletter } = data;
+            const hashedPassword = password ? await bcrypt.hash(password, saltRounds) : (await pool.query('SELECT password FROM Users WHERE id = $1', [id])).rows[0].password;
             await pool.query(`
                 UPDATE Users
                 SET email = $1, password = $2, role = $3, first_name = $4, last_name = $5, phone = $6, address = $7, birth_date = $8, gender = $9, newsletter = $10
                 WHERE id = $11
-            `, [email, password, role, first_name, last_name, phone, address, birth_date, gender, newsletter === 'on', id]);
+            `, [email, hashedPassword, role, first_name, last_name, phone, address, birth_date, gender, newsletter === 'on', id]);
         } else if (table === 'products') {
             const { article, name, description, category_id, image_url, price, stock } = data;
             await pool.query(`
@@ -1336,11 +1256,9 @@ app.post('/admin/:table/edit', requireAdmin, async (req, res) => {
     }
 });
 
-// Маршруты для удаления записей
 app.post('/admin/:table/delete', requireAdmin, async (req, res) => {
     const table = req.params.table;
     const { id } = req.body;
-
     try {
         if (table === 'users') {
             await pool.query('DELETE FROM Users WHERE id = $1', [id]);
@@ -1364,6 +1282,103 @@ app.post('/admin/:table/delete', requireAdmin, async (req, res) => {
         res.status(200).send('Запись удалена');
     } catch (err) {
         logger.error(`Ошибка при удалении записи из ${table}: ` + err.stack);
+        res.status(500).send('Ошибка сервера');
+    }
+});
+
+// Маршрут статистики продаж
+app.get('/admin/sales-stats', requireAdmin, async (req, res) => {
+    try {
+        const totalRevenue = await pool.query(`
+            SELECT COALESCE(SUM(total_price), 0) AS total
+            FROM Orders
+            WHERE status = 'completed'
+        `);
+        const totalRevenueValue = parseFloat(totalRevenue.rows[0].total);
+        const todayRevenue = await pool.query(`
+            SELECT COALESCE(SUM(total_price), 0) AS total
+            FROM Orders
+            WHERE status = 'completed'
+            AND DATE(created_at) = CURRENT_DATE
+        `);
+        const todayRevenueValue = parseFloat(todayRevenue.rows[0].total);
+        const weekRevenue = await pool.query(`
+            SELECT COALESCE(SUM(total_price), 0) AS total
+            FROM Orders
+            WHERE status = 'completed'
+            AND created_at >= CURRENT_DATE - INTERVAL '7 days'
+        `);
+        const weekRevenueValue = parseFloat(weekRevenue.rows[0].total);
+        const monthRevenue = await pool.query(`
+            SELECT COALESCE(SUM(total_price), 0) AS total
+            FROM Orders
+            WHERE status = 'completed'
+            AND created_at >= CURRENT_DATE - INTERVAL '30 days'
+        `);
+        const monthRevenueValue = parseFloat(monthRevenue.rows[0].total);
+        const topProducts = await pool.query(`
+            SELECT p.article, p.name, SUM(oi.quantity) AS total_sold
+            FROM Order_Items oi
+            JOIN Products p ON oi.product_article = p.article
+            JOIN Orders o ON oi.order_id = o.id
+            WHERE o.status = 'completed'
+            GROUP BY p.article, p.name
+            ORDER BY total_sold DESC
+            LIMIT 5
+        `);
+        const orderStats = await pool.query(`
+            SELECT status, COUNT(*) AS count
+            FROM Orders
+            GROUP BY status
+        `);
+        const salesByDay = await pool.query(`
+            SELECT DATE(created_at) AS sale_date, COALESCE(SUM(total_price), 0) AS total
+            FROM Orders
+            WHERE status = 'completed'
+            AND created_at >= CURRENT_DATE - INTERVAL '30 days'
+            GROUP BY DATE(created_at)
+            ORDER BY sale_date
+        `);
+        const salesByMonth = await pool.query(`
+            SELECT DATE_TRUNC('month', created_at) AS sale_month, COALESCE(SUM(total_price), 0) AS total
+            FROM Orders
+            WHERE status = 'completed'
+            AND created_at >= CURRENT_DATE - INTERVAL '1 year'
+            GROUP BY DATE_TRUNC('month', created_at)
+            ORDER BY sale_month
+        `);
+        res.render('sales-stats', {
+            user: req.session.user,
+            totalRevenue: totalRevenueValue,
+            todayRevenue: todayRevenueValue,
+            weekRevenue: weekRevenueValue,
+            monthRevenue: monthRevenueValue,
+            topProducts: topProducts.rows,
+            orderStats: orderStats.rows,
+            salesByDay: salesByDay.rows,
+            salesByMonth: salesByMonth.rows
+        });
+    } catch (err) {
+        logger.error('Ошибка при загрузке страницы статистики продаж: ' + err.stack);
+        res.status(500).send('Ошибка сервера');
+    }
+});
+
+// Утилитный маршрут для сброса паролей
+app.get('/reset-old-passwords', async (req, res) => {
+    const saltRounds = 10;
+    const newPassword = '1234';
+    try {
+        const users = await pool.query('SELECT id, email FROM Users');
+        for (const user of users.rows) {
+            if (user.email === 'user9@example.com') continue;
+            const hashedPassword = await bcrypt.hash(newPassword, saltRounds);
+            await pool.query('UPDATE Users SET password = $1 WHERE id = $2', [hashedPassword, user.id]);
+            logger.info(`Пароль для пользователя ${user.email} (id: ${user.id}) сброшен на 1234`);
+        }
+        res.send('Пароли для старых пользователей сброшены на 1234');
+    } catch (err) {
+        logger.error('Ошибка при сбросе паролей: ' + err.stack);
         res.status(500).send('Ошибка сервера');
     }
 });

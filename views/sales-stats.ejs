@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Статистика продаж - AgroShop</title>
+    <link rel="stylesheet" href="/styles/main.css">
+    <link rel="stylesheet" href="/styles/stats.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+    <!-- Заблюренный фон -->
+    <div class="background"></div>
+
+    <!-- Шапка -->
+    <header>
+        <div class="auth-section">
+            <% if (user) { %>
+                <div class="user-profile">
+                    <img src="<%= user.avatar_url || '/images/default-avatar.png' %>" alt="Avatar" class="avatar">
+                    <span><%= user.first_name %> <%= user.last_name %></span>
+                    <button class="logout-btn" onclick="window.location.href='/logout'">Выйти</button>
+                </div>
+            <% } else { %>
+                <div class="auth-buttons">
+                    <button class="auth-btn" onclick="window.location.href='/login'">Войти</button>
+                    <button class="auth-btn" onclick="window.location.href='/register'">Регистрация</button>
+                </div>
+            <% } %>
+        </div>
+    </header>
+
+    <!-- Боковое меню -->
+    <div class="sidebar">
+        <img src="/logo.png" alt="AgroShop Logo" class="logo">
+        <ul>
+            <li><a href="/">Главная</a></li>
+            <li><a href="/catalog">Каталог товаров</a></li>
+            <li><a href="/cart">Корзина</a></li>
+            <li><a href="/profile">Личный кабинет</a></li>
+            <li><a href="/admin">Админская панель</a></li>
+            <li><a href="/admin/sales-stats">Статистика продаж</a></li>
+        </ul>
+    </div>
+
+    <!-- Основной контент -->
+    <div class="content">
+        <h2 style="font-family: 'Playfair Display', serif; color: #3c6f3c;">Статистика продаж</h2>
+
+        <!-- Общая выручка -->
+        <div class="stats-grid">
+            <div class="stats-card">
+                <h3>Общая выручка</h3>
+                <p><%= totalRevenue.toFixed(2) %> руб.</p>
+            </div>
+            <div class="stats-card">
+                <h3>Выручка за сегодня</h3>
+                <p><%= todayRevenue.toFixed(2) %> руб.</p>
+            </div>
+            <div class="stats-card">
+                <h3>Выручка за неделю</h3>
+                <p><%= weekRevenue.toFixed(2) %> руб.</p>
+            </div>
+            <div class="stats-card">
+                <h3>Выручка за месяц</h3>
+                <p><%= monthRevenue.toFixed(2) %> руб.</p>
+            </div>
+        </div>
+
+        <!-- Самые популярные товары -->
+        <div class="stats-card">
+            <h3>Самые популярные товары</h3>
+            <% if (topProducts.length > 0) { %>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Артикул</th>
+                            <th>Название</th>
+                            <th>Продано (шт.)</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <% topProducts.forEach(product => { %>
+                            <tr>
+                                <td><%= product.article %></td>
+                                <td><%= product.name %></td>
+                                <td><%= product.total_sold %></td>
+                            </tr>
+                        <% }) %>
+                    </tbody>
+                </table>
+            <% } else { %>
+                <p>Нет данных о продажах.</p>
+            <% } %>
+        </div>
+
+        <!-- Статистика заказов по статусам -->
+        <div class="stats-card">
+            <h3>Статистика заказов по статусам</h3>
+            <% if (orderStats.length > 0) { %>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Статус</th>
+                            <th>Количество</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <% orderStats.forEach(stat => { %>
+                            <tr>
+                                <td><%= stat.status %></td>
+                                <td><%= stat.count %></td>
+                            </tr>
+                        <% }) %>
+                    </tbody>
+                </table>
+            <% } else { %>
+                <p>Нет заказов.</p>
+            <% } %>
+        </div>
+
+        <!-- График продаж по дням -->
+        <div class="stats-card">
+            <h3>Продажи по дням (последние 30 дней)</h3>
+            <div class="chart-container">
+                <canvas id="salesByDayChart"></canvas>
+            </div>
+        </div>
+
+        <!-- График продаж по месяцам -->
+        <div class="stats-card">
+            <h3>Продажи по месяцам (последний год)</h3>
+            <div class="chart-container">
+                <canvas id="salesByMonthChart"></canvas>
+            </div>
+        </div>
+    </div>
+
+    <!-- Подвал -->
+    <footer>
+        <p>&copy; 2025 AgroShop. Все права защищены.</p>
+        <div class="social-links">
+            <a href="https://instagram.com" target="_blank"><i class="fab fa-instagram"></i></a>
+            <a href="https://t.me" target="_blank"><i class="fab fa-telegram"></i></a>
+            <a href="https://vk.com" target="_blank"><i class="fab fa-vk"></i></a>
+        </div>
+    </footer>
+    
+
+    <!-- Скрипт для графиков -->
+    <script>
+        // График продаж по дням
+        const salesByDayCtx = document.getElementById('salesByDayChart').getContext('2d');
+        new Chart(salesByDayCtx, {
+            type: 'line',
+            data: {
+                labels: [<% salesByDay.forEach((sale, index) => { %><%= index > 0 ? ',' : '' %>'<%= sale.sale_date.toISOString().split('T')[0] %>'<% }) %>],
+                datasets: [{
+                    label: 'Выручка (руб.)',
+                    data: [<% salesByDay.forEach((sale, index) => { %><%= index > 0 ? ',' : '' %><%= sale.total %><% }) %>],
+                    borderColor: '#3c6f3c',
+                    fill: false
+                }]
+            },
+            options: {
+                scales: {
+                    x: { title: { display: true, text: 'Дата' } },
+                    y: { title: { display: true, text: 'Выручка (руб.)' }, beginAtZero: true }
+                }
+            }
+        });
+
+        // График продаж по месяцам
+        const salesByMonthCtx = document.getElementById('salesByMonthChart').getContext('2d');
+        new Chart(salesByMonthCtx, {
+            type: 'bar',
+            data: {
+                labels: [<% salesByMonth.forEach((sale, index) => { %><%= index > 0 ? ',' : '' %>'<%= sale.sale_month.toISOString().split('T')[0].slice(0, 7) %>'<% }) %>],
+                datasets: [{
+                    label: 'Выручка (руб.)',
+                    data: [<% salesByMonth.forEach((sale, index) => { %><%= index > 0 ? ',' : '' %><%= sale.total %><% }) %>],
+                    backgroundColor: '#3c6f3c'
+                }]
+            },
+            options: {
+                scales: {
+                    x: { title: { display: true, text: 'Месяц' } },
+                    y: { title: { display: true, text: 'Выручка (руб.)' }, beginAtZero: true }
+                }
+            }
+        });
+    </script>
+</body>
+</html>
