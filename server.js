@@ -15,6 +15,11 @@ const io = new Server(server);
 
 const isProduction = process.env.NODE_ENV === 'production';
 
+let dailyStats = {
+    visits: 0,
+    productOrders: {}
+};
+
 // Упрощенная конфигурация логгера
 const logger = winston.createLogger({
   level: 'info',
