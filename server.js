@@ -13,93 +13,49 @@ const app = express();
 const server = http.createServer(app);
 const io = new Server(server);
 
-// Определяем режим работы
 const isProduction = process.env.NODE_ENV === 'production';
 
-// Настройка логирования
+// Упрощенная конфигурация логгера
 const logger = winston.createLogger({
-    level: 'info',
-    format: winston.format.combine(
-        winston.format.timestamp({ format: 'YYYY-MM-DD HH:mm:ss' }),
-        winston.format.printf(({ timestamp, level, message }) => {
-            return `${timestamp} [${level.toUpperCase()}]: ${message}`;
-        })
-    ),
-    transports: [
-        new winston.transports.Console()
-    ]
+  level: 'info',
+  format: winston.format.combine(
+    winston.format.timestamp(),
+    winston.format.printf(({ timestamp, level, message }) => {
+      return `${timestamp} [${level.toUpperCase()}]: ${message}`;
+    })
+  ),
+  transports: [new winston.transports.Console()]
 });
 
-// В production добавляем облачное логирование (пример для Sentry)
-if (isProduction) {
-    const { SentryTransport } = require('@sentry/winston');
-    const Sentry = require('@sentry/node');
-    
-    Sentry.init({ 
-        dsn: process.env.SENTRY_DSN,
-        tracesSampleRate: 1.0
-    });
-
-    logger.add(new SentryTransport({
-        level: 'error',
-        sentry: Sentry
-    }));
-} else {
-    // В development добавляем запись в файлы
-    const DailyRotateFile = require('winston-daily-rotate-file');
-    logger.add(new DailyRotateFile({
-        filename: 'logs/app-%DATE%.log',
-        datePattern: 'YYYY-MM-DD',
-        maxSize: '20m',
-        maxFiles: '30d'
-    }));
-}
-
-// Логгер для статистики (в production используем только память)
+// Логгер статистики (просто выводим в консоль)
 const statsLogger = {
-    info: (data) => {
-        if (isProduction) {
-            // Здесь можно добавить отправку статистики в облачный сервис
-            console.log('[STATS]', JSON.stringify(data));
-        } else {
-            logger.info(`[STATS] ${JSON.stringify(data)}`);
-        }
-    }
+  info: (data) => logger.info(`[STATS] ${JSON.stringify(data)}`)
 };
 
-// Настройка подключения к PostgreSQL
+// Подключение к PostgreSQL
 const pool = new Pool({
-    connectionString: process.env.DATABASE_URL,
-    ssl: isProduction ? { 
-        rejectUnauthorized: false 
-    } : false
+  connectionString: process.env.DATABASE_URL,
+  ssl: isProduction ? { rejectUnauthorized: false } : false
 });
 
-pool.connect((err, client, release) => {
-    if (err) {
-        logger.error('Ошибка подключения к базе данных: ' + err.stack);
-        return;
-    }
-    logger.info('Успешно подключено к базе данных PostgreSQL');
-    release();
-});
+// Проверка подключения к БД
+pool.connect()
+  .then(client => {
+    logger.info('Успешно подключено к PostgreSQL');
+    client.release();
+  })
+  .catch(err => logger.error('Ошибка подключения к БД:', err));
 
-// Настройка сессий
+// Конфигурация сессий
 const sessionMiddleware = session({
-    secret: process.env.SESSION_SECRET || 'your_secret_key',
-    resave: false,
-    saveUninitialized: false,
-    cookie: { 
-        secure: isProduction,
-        maxAge: 24 * 60 * 60 * 1000 
-    }
+  secret: process.env.SESSION_SECRET || 'default_secret',
+  resave: false,
+  saveUninitialized: false,
+  cookie: { 
+    secure: isProduction,
+    maxAge: 86400000 
+  }
 });
-
-// Переменные для хранения статистики в памяти
-let dailyStats = {
-    visits: 0,
-    productOrders: {}
-};
 
 // Middleware
 app.use(sessionMiddleware);
