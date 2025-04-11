@@ -5,80 +5,57 @@ const path = require('path');
 const { Pool } = require('pg');
 const session = require('express-session');
 const winston = require('winston');
-const DailyRotateFile = require('winston-daily-rotate-file');
-const bcrypt = require('bcrypt');
+const bcrypt = require('bcryptjs');
 const cookieParser = require('cookie-parser');
-const schedule = require('node-schedule');
+require('dotenv').config();
 
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server);
 
-// Настройка логирования с помощью winston
+const isProduction = process.env.NODE_ENV === 'production';
+
+// Упрощенная конфигурация логгера
 const logger = winston.createLogger({
-    level: 'info',
-    format: winston.format.combine(
-        winston.format.timestamp({ format: 'YYYY-MM-DD HH:mm:ss' }),
-        winston.format.printf(({ timestamp, level, message }) => {
-            return `${timestamp} [${level.toUpperCase()}]: ${message}`;
-        })
-    ),
-    transports: [
-        new winston.transports.Console(),
-        new DailyRotateFile({
-            filename: 'logs/app-%DATE%.log',
-            datePattern: 'YYYY-MM-DD',
-            maxSize: '20m',
-            maxFiles: '30d'
-        })
-    ]
+  level: 'info',
+  format: winston.format.combine(
+    winston.format.timestamp(),
+    winston.format.printf(({ timestamp, level, message }) => {
+      return `${timestamp} [${level.toUpperCase()}]: ${message}`;
+    })
+  ),
+  transports: [new winston.transports.Console()]
 });
 
-// Логгер для статистики посещений и заказов
-const statsLogger = winston.createLogger({
-    level: 'info',
-    format: winston.format.json(),
-    transports: [
-        new DailyRotateFile({
-            filename: 'logs/stats-%DATE%.log',
-            datePattern: 'YYYY-MM-DD',
-            maxSize: '20m',
-            maxFiles: '30d'
-        })
-    ]
-});
-
-// Настройка подключения к PostgreSQL
-const pool = new Pool({
-    user: 'postgres',
-    host: 'localhost',
-    database: 'agroshop',
-    password: '2264',
-    port: 5433
-});
-
-pool.connect((err, client, release) => {
-    if (err) {
-        logger.error('Ошибка подключения к базе данных: ' + err.stack);
-        return;
-    }
-    logger.info('Успешно подключено к базе данных PostgreSQL');
-    release();
-});
-
-// Настройка сессий
-const sessionMiddleware = session({
-    secret: 'your_secret_key',
-    resave: false,
-    saveUninitialized: false,
-    cookie: { secure: false }
-});
-
-// Переменные для хранения статистики в памяти
-let dailyStats = {
-    visits: 0,
-    productOrders: {}
+// Логгер статистики (просто выводим в консоль)
+const statsLogger = {
+  info: (data) => logger.info(`[STATS] ${JSON.stringify(data)}`)
 };
+
+// Подключение к PostgreSQL
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: isProduction ? { rejectUnauthorized: false } : false
+});
+
+// Проверка подключения к БД
+pool.connect()
+  .then(client => {
+    logger.info('Успешно подключено к PostgreSQL');
+    client.release();
+  })
+  .catch(err => logger.error('Ошибка подключения к БД:', err));
+
+// Конфигурация сессий
+const sessionMiddleware = session({
+  secret: process.env.SESSION_SECRET || 'default_secret',
+  resave: false,
+  saveUninitialized: false,
+  cookie: { 
+    secure: isProduction,
+    maxAge: 86400000 
+  }
+});
 
 // Middleware
 app.use(sessionMiddleware);
@@ -123,7 +100,8 @@ app.use((req, res, next) => {
         dailyStats.visits++;
         res.cookie('visitTracked', 'true', {
             maxAge: 24 * 60 * 60 * 1000,
-            httpOnly: true
+            httpOnly: true,
+            secure: isProduction
         });
     }
     next();
@@ -133,7 +111,7 @@ app.use((req, res, next) => {
 app.set('view engine', 'ejs');
 app.set('views', path.join(__dirname, 'views'));
 
-// Функция для записи статистики в лог-файл
+// Функция для записи статистики
 function logDailyStats() {
     statsLogger.info(dailyStats);
     dailyStats = {
@@ -142,12 +120,23 @@ function logDailyStats() {
     };
 }
 
-// Планировщик для записи статистики каждый день в полночь
-schedule.scheduleJob('0 0 * * *', () => {
-    logDailyStats();
-    logger.info('Ежедневная статистика записана в лог-файл');
-});
+// В production используем Vercel Cron Jobs вместо node-schedule
+if (!isProduction) {
+    const schedule = require('node-schedule');
+    schedule.scheduleJob('0 0 * * *', () => {
+        logDailyStats();
+        logger.info('Ежедневная статистика записана');
+    });
+}
 
+// Добавляем endpoint для вызова по расписанию в production
+if (isProduction) {
+    app.get('/cron/daily-stats', (req, res) => {
+        logDailyStats();
+        logger.info('Ежедневная статистика записана (по расписанию)');
+        res.status(200).send('OK');
+    });
+}
 // Основные маршруты
 app.get('/', async (req, res) => {
     try {
@@ -1384,7 +1373,10 @@ app.get('/reset-old-passwords', async (req, res) => {
 });
 
 // Запуск сервера
+// const PORT = process.env.PORT || 3000;
+// server.listen(PORT, () => {
+//     logger.info(`Сервер запущен на порту ${PORT}`);
+// });
+
 const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => {
-    logger.info(`Сервер запущен на порту ${PORT}`);
-});
+app.listen(PORT, () => console.log(`Сервер запущен на порту ${PORT}`));
