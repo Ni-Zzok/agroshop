@@ -6,7 +6,7 @@ const { Pool } = require('pg');
 const session = require('express-session');
 const winston = require('winston');
 const DailyRotateFile = require('winston-daily-rotate-file');
-const bcrypt = require('bcrypt');
+const bcrypt = require('bcryptjs');
 const cookieParser = require('cookie-parser');
 const schedule = require('node-schedule');
 require('dotenv').config()
