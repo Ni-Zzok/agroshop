@@ -9,6 +9,7 @@ const DailyRotateFile = require('winston-daily-rotate-file');
 const bcrypt = require('bcrypt');
 const cookieParser = require('cookie-parser');
 const schedule = require('node-schedule');
+require('dotenv').config()
 
 const app = express();
 const server = http.createServer(app);
@@ -50,12 +51,11 @@ const statsLogger = winston.createLogger({
 
 // Настройка подключения к PostgreSQL
 const pool = new Pool({
-    user: 'postgres',
-    host: 'localhost',
-    database: 'agroshop',
-    password: '2264',
-    port: 5433
-});
+    connectionString: process.env.DATABASE_URL,
+    ssl: process.env.NODE_ENV === 'production' ? { 
+      rejectUnauthorized: false 
+    } : false
+  });
 
 pool.connect((err, client, release) => {
     if (err) {
