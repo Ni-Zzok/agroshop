@@ -5,17 +5,18 @@ const path = require('path');
 const { Pool } = require('pg');
 const session = require('express-session');
 const winston = require('winston');
-const DailyRotateFile = require('winston-daily-rotate-file');
 const bcrypt = require('bcryptjs');
 const cookieParser = require('cookie-parser');
-const schedule = require('node-schedule');
-require('dotenv').config()
+require('dotenv').config();
 
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server);
 
-// Настройка логирования с помощью winston
+// Определяем режим работы
+const isProduction = process.env.NODE_ENV === 'production';
+
+// Настройка логирования
 const logger = winston.createLogger({
     level: 'info',
     format: winston.format.combine(
@@ -25,37 +26,54 @@ const logger = winston.createLogger({
         })
     ),
     transports: [
-        new winston.transports.Console(),
-        new DailyRotateFile({
-            filename: 'logs/app-%DATE%.log',
-            datePattern: 'YYYY-MM-DD',
-            maxSize: '20m',
-            maxFiles: '30d'
-        })
+        new winston.transports.Console()
     ]
 });
 
-// Логгер для статистики посещений и заказов
-const statsLogger = winston.createLogger({
-    level: 'info',
-    format: winston.format.json(),
-    transports: [
-        new DailyRotateFile({
-            filename: 'logs/stats-%DATE%.log',
-            datePattern: 'YYYY-MM-DD',
-            maxSize: '20m',
-            maxFiles: '30d'
-        })
-    ]
-});
+// В production добавляем облачное логирование (пример для Sentry)
+if (isProduction) {
+    const { SentryTransport } = require('@sentry/winston');
+    const Sentry = require('@sentry/node');
+    
+    Sentry.init({ 
+        dsn: process.env.SENTRY_DSN,
+        tracesSampleRate: 1.0
+    });
+
+    logger.add(new SentryTransport({
+        level: 'error',
+        sentry: Sentry
+    }));
+} else {
+    // В development добавляем запись в файлы
+    const DailyRotateFile = require('winston-daily-rotate-file');
+    logger.add(new DailyRotateFile({
+        filename: 'logs/app-%DATE%.log',
+        datePattern: 'YYYY-MM-DD',
+        maxSize: '20m',
+        maxFiles: '30d'
+    }));
+}
+
+// Логгер для статистики (в production используем только память)
+const statsLogger = {
+    info: (data) => {
+        if (isProduction) {
+            // Здесь можно добавить отправку статистики в облачный сервис
+            console.log('[STATS]', JSON.stringify(data));
+        } else {
+            logger.info(`[STATS] ${JSON.stringify(data)}`);
+        }
+    }
+};
 
 // Настройка подключения к PostgreSQL
 const pool = new Pool({
     connectionString: process.env.DATABASE_URL,
-    ssl: process.env.NODE_ENV === 'production' ? { 
-      rejectUnauthorized: false 
+    ssl: isProduction ? { 
+        rejectUnauthorized: false 
     } : false
-  });
+});
 
 pool.connect((err, client, release) => {
     if (err) {
@@ -68,10 +86,13 @@ pool.connect((err, client, release) => {
 
 // Настройка сессий
 const sessionMiddleware = session({
-    secret: 'your_secret_key',
+    secret: process.env.SESSION_SECRET || 'your_secret_key',
     resave: false,
     saveUninitialized: false,
-    cookie: { secure: false }
+    cookie: { 
+        secure: isProduction,
+        maxAge: 24 * 60 * 60 * 1000 
+    }
 });
 
 // Переменные для хранения статистики в памяти
@@ -123,7 +144,8 @@ app.use((req, res, next) => {
         dailyStats.visits++;
         res.cookie('visitTracked', 'true', {
             maxAge: 24 * 60 * 60 * 1000,
-            httpOnly: true
+            httpOnly: true,
+            secure: isProduction
         });
     }
     next();
@@ -133,7 +155,7 @@ app.use((req, res, next) => {
 app.set('view engine', 'ejs');
 app.set('views', path.join(__dirname, 'views'));
 
-// Функция для записи статистики в лог-файл
+// Функция для записи статистики
 function logDailyStats() {
     statsLogger.info(dailyStats);
     dailyStats = {
@@ -142,12 +164,23 @@ function logDailyStats() {
     };
 }
 
-// Планировщик для записи статистики каждый день в полночь
-schedule.scheduleJob('0 0 * * *', () => {
-    logDailyStats();
-    logger.info('Ежедневная статистика записана в лог-файл');
-});
+// В production используем Vercel Cron Jobs вместо node-schedule
+if (!isProduction) {
+    const schedule = require('node-schedule');
+    schedule.scheduleJob('0 0 * * *', () => {
+        logDailyStats();
+        logger.info('Ежедневная статистика записана');
+    });
+}
 
+// Добавляем endpoint для вызова по расписанию в production
+if (isProduction) {
+    app.get('/cron/daily-stats', (req, res) => {
+        logDailyStats();
+        logger.info('Ежедневная статистика записана (по расписанию)');
+        res.status(200).send('OK');
+    });
+}
 // Основные маршруты
 app.get('/', async (req, res) => {
     try {

@@ -56,3 +56,8 @@
 2025-04-11 21:04:45 [INFO]: Сервер запущен на порту 3000
 2025-04-11 21:04:47 [INFO]: Успешно подключено к базе данных PostgreSQL
 2025-04-11 22:54:57 [INFO]: Успешно подключено к базе данных PostgreSQL
+2025-04-11 23:16:12 [INFO]: Успешно подключено к базе данных PostgreSQL
+2025-04-11 23:16:18 [ERROR]: Ошибка при загрузке главной страницы: error: relation "categories" does not exist
+    at D:\agroshop\node_modules\pg-pool\index.js:45:11
+    at process.processTicksAndRejections (node:internal/process/task_queues:95:5)
+    at async D:\agroshop\server.js:154:34
