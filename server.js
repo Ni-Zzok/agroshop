@@ -1384,7 +1384,9 @@ app.get('/reset-old-passwords', async (req, res) => {
 });
 
 // Запуск сервера
-const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => {
-    logger.info(`Сервер запущен на порту ${PORT}`);
-});
+// const PORT = process.env.PORT || 3000;
+// server.listen(PORT, () => {
+//     logger.info(`Сервер запущен на порту ${PORT}`);
+// });
+
+app.listen(process.env.PORT, ()=> console.log("Server is running on port 3000"))
