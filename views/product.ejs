@@ -51,6 +51,7 @@
                 <p class="category">Категория: <%= product.category_name || 'Без категории' %></p>
                 <p class="price">Цена: <%= product.price %> руб.</p>
                 <p class="stock">В наличии: <%= product.stock %> шт.</p>
+                <p class="article">Артикул: <%= product.article %></p> <!-- Добавляем артикул -->
                 <p class="description"><%= product.description %></p>
                 <form action="/cart/add" method="POST" class="add-to-cart-form">
                     <input type="hidden" name="article" value="<%= product.article %>">

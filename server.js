@@ -37,11 +37,21 @@ const statsLogger = {
   info: (data) => logger.info(`[STATS] ${JSON.stringify(data)}`)
 };
 
-// Подключение к PostgreSQL
+// Настройка подключения к PostgreSQL
 const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-  ssl: isProduction ? { rejectUnauthorized: false } : false
+    user: 'postgres',
+    host: 'localhost',
+    database: 'agroshop',
+    password: '2264',
+    port: 5433
 });
+
+// // Подключение к PostgreSQL
+// const pool = new Pool({
+//     connectionString: process.env.DATABASE_URL,
+//     ssl: isProduction ? { rejectUnauthorized: false } : false
+//   });
+  
 
 // Проверка подключения к БД
 pool.connect()
@@ -112,6 +122,7 @@ app.use((req, res, next) => {
     }
     next();
 });
+//http cookie
 
 // Настройка шаблонизатора EJS
 app.set('view engine', 'ejs');
