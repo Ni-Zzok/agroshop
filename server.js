@@ -53,12 +53,18 @@ pool.connect()
 
 // Конфигурация сессий
 const sessionMiddleware = session({
+  store: new connectPgSimple({
+    pool: pool,
+    tableName: 'session',
+    createTableIfMissing: true
+  }),
   secret: process.env.SESSION_SECRET || 'default_secret',
   resave: false,
   saveUninitialized: false,
-  cookie: { 
-    secure: isProduction,
-    maxAge: 86400000 
+  cookie: {
+    secure: process.env.NODE_ENV === 'production',
+    maxAge: 86400000,
+    sameSite: 'lax'
   }
 });
 
@@ -144,23 +150,23 @@ if (isProduction) {
 }
 // Основные маршруты
 app.get('/', async (req, res) => {
+    logger.info(`Сессия на главной: userId=${req.session.userId}, user=${JSON.stringify(req.session.user)}`);
     try {
-        const categoriesResult = await pool.query(`
-            SELECT id, name, image_url
-            FROM Categories
-            WHERE parent_id IS NULL
-            ORDER BY name
-        `);
-        res.render('index', {
-            user: req.session.user,
-            categories: categoriesResult.rows
-        });
+      const categoriesResult = await pool.query(`
+        SELECT id, name, image_url
+        FROM Categories
+        WHERE parent_id IS NULL
+        ORDER BY name
+      `);
+      res.render('index', {
+        user: req.session.user,
+        categories: categoriesResult.rows
+      });
     } catch (err) {
-        logger.error('Ошибка при загрузке главной страницы: ' + err.stack);
-        res.status(500).send('Ошибка сервера');
+      logger.error('Ошибка при загрузке главной страницы: ' + err.stack);
+      res.status(500).send('Ошибка сервера');
     }
-});
-
+  });
 app.get('/login', (req, res) => {
     if (req.session.userId) {
         return res.redirect('/profile');
@@ -1378,10 +1384,7 @@ app.get('/reset-old-passwords', async (req, res) => {
 });
 
 // Запуск сервера
-// const PORT = process.env.PORT || 3000;
-// server.listen(PORT, () => {
-//     logger.info(`Сервер запущен на порту ${PORT}`);
-// });
-
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`Сервер запущен на порту ${PORT}`));
+server.listen(PORT, () => {
+    logger.info(`Сервер запущен на порту ${PORT}`);
+});
