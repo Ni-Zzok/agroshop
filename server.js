@@ -53,20 +53,15 @@ pool.connect()
 
 // Конфигурация сессий
 const sessionMiddleware = session({
-  store: new connectPgSimple({
-    pool: pool,
-    tableName: 'session',
-    createTableIfMissing: true
-  }),
-  secret: process.env.SESSION_SECRET || 'default_secret',
-  resave: false,
-  saveUninitialized: false,
-  cookie: {
-    secure: process.env.NODE_ENV === 'production',
-    maxAge: 86400000,
-    sameSite: 'lax'
-  }
-});
+    secret: process.env.SESSION_SECRET || 'default_secret',
+    resave: false,
+    saveUninitialized: false,
+    cookie: {
+      secure: process.env.NODE_ENV === 'production',
+      maxAge: 86400000, // 24 часа
+      sameSite: 'lax'
+    }
+  });
 
 // Middleware
 app.use(sessionMiddleware);
