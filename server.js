@@ -38,20 +38,20 @@ const statsLogger = {
   info: (data) => logger.info(`[STATS] ${JSON.stringify(data)}`)
 };
 
-// Настройка подключения к PostgreSQL
-const pool = new Pool({
-    user: 'postgres',
-    host: 'localhost',
-    database: 'agroshop',
-    password: '2264',
-    port: 5433
-});
-
-// // Подключение к PostgreSQL
+// // Настройка подключения к PostgreSQL
 // const pool = new Pool({
-//     connectionString: process.env.DATABASE_URL,
-//     ssl: isProduction ? { rejectUnauthorized: false } : false
-//   });
+//     user: 'postgres',
+//     host: 'localhost',
+//     database: 'agroshop',
+//     password: '2264',
+//     port: 5433
+// });
+
+// Подключение к PostgreSQL
+const pool = new Pool({
+    connectionString: process.env.DATABASE_URL,
+    ssl: isProduction ? { rejectUnauthorized: false } : false
+  });
   
 
 // Проверка подключения к БД
@@ -62,6 +62,7 @@ pool.connect()
   })
   .catch(err => logger.error('Ошибка подключения к БД:', err));
 
+  
 // Конфигурация сессий
 const sessionMiddleware = session({
     secret: process.env.SESSION_SECRET || 'default_secret',
