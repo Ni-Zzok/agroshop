@@ -711,19 +711,40 @@ app.post('/checkout', requireAuth, async (req, res) => {
             }
         }
         const totalPrice = cartResult.rows.reduce((sum, item) => sum + item.price * item.quantity, 0);
-        req.session.pendingOrder = {
-            userId: userId,
-            cartItems: cartResult.rows,
-            totalPrice: totalPrice,
-            shippingAddress: shippingAddress
-        };
-        const tempOrderId = Date.now().toString();
-        req.session.pendingOrder.tempOrderId = tempOrderId;
-        logger.info(`Данные о заказе для пользователя ${userId} сохранены в сессии, tempOrderId: ${tempOrderId}`);
-        res.redirect(`/payment/${tempOrderId}`);
+
+        // Создаем заказ в базе данных
+        const orderResult = await pool.query(`
+            INSERT INTO Orders (user_id, total_price, status, shipping_address, payment_method, created_at)
+            VALUES ($1, $2, $3, $4, $5, NOW())
+            RETURNING id
+        `, [userId, totalPrice, 'pending', shippingAddress, 'pending_payment']);
+        const orderId = orderResult.rows[0].id;
+
+        // Добавляем элементы заказа
+        for (const item of cartResult.rows) {
+            await pool.query(`
+                INSERT INTO Order_Items (order_id, quantity, price_at_time, product_article)
+                VALUES ($1, $2, $3, $4)
+            `, [orderId, item.quantity, item.price, item.article]);
+            // Обновляем склад
+            await pool.query(`
+                UPDATE Products
+                SET stock = stock - $1
+                WHERE article = $2
+            `, [item.quantity, item.article]);
+        }
+
+        // Очищаем корзину
+        await pool.query(`
+            DELETE FROM Cart
+            WHERE user_id = $1
+        `, [userId]);
+
+        logger.info(`Заказ #${orderId} создан для пользователя ${userId}`);
+        res.redirect(`/payment/${orderId}`);
     } catch (err) {
         logger.error('Ошибка при подготовке заказа: ' + err.stack);
-        res.status(500).send('Ошибка сервера');
+        res.status(500).render('error', { message: 'Ошибка сервера', user: req.session.user });
     }
 });
 
