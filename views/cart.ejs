@@ -51,7 +51,8 @@
                             <h3><%= item.name %></h3>
                         </div>
                         <div class="cart-quantity">
-                            <input type="number" value="<%= item.quantity %>" min="1" class="quantity-input" data-id="<%= item.id %>">
+                            <span class="quantity-text" name = "quantity_txt"><%= item.quantity %></span>
+                            <label for="quantity_txt">шт.</label>
                         </div>
                         <div class="cart-price">
                             <p class="price"><%= (item.price * item.quantity).toFixed(2) %> руб.</p>
@@ -114,6 +115,49 @@
             duration: 800,
             once: true
         });
+        
+        document.querySelectorAll('.remove-btn').forEach(button => {
+            button.addEventListener('click', async () => {
+                const cartItemId = button.getAttribute('data-id');
+                try {
+                    const response = await fetch(`/cart/remove/${cartItemId}`, {
+                        method: 'DELETE',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        }
+                    });
+                    if (response.ok) {
+                        // Удаляем элемент из DOM
+                        button.closest('.cart-item').remove();
+                        // Обновляем общую стоимость
+                        updateTotalPrice();
+                        // Если корзина пуста, показываем сообщение
+                        if (!document.querySelector('.cart-item')) {
+                            document.querySelector('.cart-table').innerHTML = '<p class="empty-cart">Корзина пуста</p>';
+                            document.querySelector('.total-container').style.display = 'none';
+                            document.querySelector('.checkout-container').style.display = 'none';
+                        }
+                    } else {
+                        alert('Ошибка при удалении товара из корзины');
+                    }
+                } catch (error) {
+                    console.error('Ошибка:', error);
+                    alert('Произошла ошибка при удалении товара');
+                }
+            });
+        });
+
+        function updateTotalPrice() {
+            const prices = document.querySelectorAll('.cart-price .price');
+            let total = 0;
+            prices.forEach(price => {
+                total += parseFloat(price.textContent);
+            });
+            const totalElement = document.querySelector('.total-price');
+            if (totalElement) {
+                totalElement.textContent = total.toFixed(2) + ' руб.';
+            }
+        }
     </script>
 </body>
 </html>

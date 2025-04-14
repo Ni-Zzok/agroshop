@@ -7,6 +7,7 @@ const session = require('express-session');
 const winston = require('winston');
 const bcrypt = require('bcryptjs');
 const cookieParser = require('cookie-parser');
+const multer = require('multer');
 require('dotenv').config();
 
 const app = express();
@@ -146,6 +147,35 @@ if (!isProduction) {
     });
 }
 
+// Настройка хранилища ав
+const storage = multer.diskStorage({
+    destination: (req, file, cb) => {
+        cb(null, 'public/avatars/');
+    },
+    filename: (req, file, cb) => {
+        const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+        cb(null, `${req.session.userId}-${uniqueSuffix}${path.extname(file.originalname)}`);
+    }
+});
+
+// Фильтр для проверки типа файла
+const fileFilter = (req, file, cb) => {
+    if (file.mimetype.startsWith('image/')) {
+        cb(null, true);
+    } else {
+        cb(new Error('Файл должен быть изображением'), false);
+    }
+};
+
+// Настройка multer
+const upload = multer({
+    storage: storage,
+    fileFilter: fileFilter,
+    limits: { fileSize: 5 * 1024 * 1024 } // Максимум 5 МБ
+});
+
+
+
 // Добавляем endpoint для вызова по расписанию в production
 if (isProduction) {
     app.get('/cron/daily-stats', (req, res) => {
@@ -229,7 +259,7 @@ app.get('/register', (req, res) => {
 });
 
 app.post('/register', async (req, res) => {
-    const { email, password, firstName, lastName } = req.body;
+    const { email, password, firstName, lastName, phone, birthDate, newsletter } = req.body;
     const saltRounds = 10;
     try {
         const existingUser = await pool.query(`
@@ -242,10 +272,18 @@ app.post('/register', async (req, res) => {
         }
         const hashedPassword = await bcrypt.hash(password, saltRounds);
         const result = await pool.query(`
-            INSERT INTO Users (email, password, first_name, last_name, role, registration_date)
-            VALUES ($1, $2, $3, $4, 'user', CURRENT_TIMESTAMP)
+            INSERT INTO Users (email, password, first_name, last_name, phone, birth_date, newsletter, role, registration_date)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, 'user', CURRENT_TIMESTAMP)
             RETURNING id, email, first_name, last_name
-        `, [email, hashedPassword, firstName, lastName]);
+        `, [
+            email,
+            hashedPassword,
+            firstName || null,
+            lastName || null,
+            phone || null,
+            birthDate || null,
+            newsletter === 'on' // Чекбокс отправляет 'on' или ничего
+        ]);
         const user = result.rows[0];
         req.session.userId = user.id;
         req.session.user = {
@@ -256,11 +294,7 @@ app.post('/register', async (req, res) => {
             role: 'user'
         };
         logger.info(`Новый пользователь зарегистрирован: ${user.email}`);
-        if (user.role === 'admin') {
-            res.redirect('/admin');
-        } else {
-            res.redirect('/');
-        }
+        res.redirect('/');
     } catch (err) {
         logger.error('Ошибка при регистрации: ' + err.stack);
         res.status(500).send('Ошибка сервера');
@@ -506,6 +540,25 @@ app.post('/cart/add', requireAuth, async (req, res) => {
     }
 });
 
+app.delete('/cart/remove/:id', requireAuth, async (req, res) => {
+    const cartItemId = req.params.id;
+    const userId = req.session.userId;
+    try {
+        const result = await pool.query(`
+            DELETE FROM Cart
+            WHERE id = $1 AND user_id = $2
+        `, [cartItemId, userId]);
+        if (result.rowCount === 0) {
+            return res.status(404).json({ error: 'Товар не найден в корзине' });
+        }
+        logger.info(`Товар с id ${cartItemId} удален из корзины пользователя ${userId}`);
+        res.status(200).json({ message: 'Товар удален из корзины' });
+    } catch (err) {
+        logger.error('Ошибка при удалении товара из корзины: ' + err.stack);
+        res.status(500).json({ error: 'Ошибка сервера' });
+    }
+});
+
 // Маршруты профиля
 app.get('/profile', requireAuth, async (req, res) => {
     try {
@@ -675,25 +728,38 @@ app.post('/checkout', requireAuth, async (req, res) => {
 
 // Маршруты оплаты
 app.get('/payment/:orderId', requireAuth, async (req, res) => {
-    const tempOrderId = req.params.orderId;
+    const orderId = req.params.orderId;
     const userId = req.session.userId;
     try {
-        if (!req.session.pendingOrder || req.session.pendingOrder.tempOrderId !== tempOrderId || req.session.pendingOrder.userId !== userId) {
+        // Ищем заказ в базе данных
+        const orderResult = await pool.query(`
+            SELECT o.id, o.total_price, o.shipping_address, o.created_at, o.status,
+                   oi.quantity, oi.price_at_time, p.name, p.article, p.image_url
+            FROM Orders o
+            JOIN Order_Items oi ON o.id = oi.order_id
+            JOIN Products p ON oi.product_article = p.article
+            WHERE o.id = $1 AND o.user_id = $2 AND o.status = 'pending'
+        `, [orderId, userId]);
+        
+        if (orderResult.rows.length === 0) {
+            logger.warn(`Заказ #${orderId} не найден для пользователя ${userId} или уже обработан`);
             return res.status(404).send('Заказ не найден');
         }
-        const { cartItems, totalPrice, shippingAddress } = req.session.pendingOrder;
+
         const order = {
-            id: tempOrderId,
-            total_price: totalPrice,
-            shipping_address: shippingAddress,
-            created_at: new Date(),
-            items: cartItems.map(item => ({
+            id: orderResult.rows[0].id,
+            total_price: parseFloat(orderResult.rows[0].total_price),
+            shipping_address: orderResult.rows[0].shipping_address,
+            created_at: orderResult.rows[0].created_at,
+            items: orderResult.rows.map(item => ({
                 name: item.name,
                 article: item.article,
                 quantity: item.quantity,
-                price_at_time: item.price
+                price_at_time: parseFloat(item.price_at_time),
+                image_url: item.image_url
             }))
         };
+
         res.render('payment', { order, user: req.session.user });
     } catch (err) {
         logger.error('Ошибка при получении заказа для оплаты: ' + err.stack);
@@ -702,39 +768,47 @@ app.get('/payment/:orderId', requireAuth, async (req, res) => {
 });
 
 app.post('/payment/:orderId/process', requireAuth, async (req, res) => {
-    const tempOrderId = req.params.orderId;
+    const orderId = req.params.orderId;
     const userId = req.session.userId;
     try {
-        if (!req.session.pendingOrder || req.session.pendingOrder.tempOrderId !== tempOrderId || req.session.pendingOrder.userId !== userId) {
+        // Проверяем, что заказ существует и принадлежит пользователю
+        const orderResult = await pool.query(`
+            SELECT total_price, status
+            FROM Orders
+            WHERE id = $1 AND user_id = $2
+        `, [orderId, userId]);
+        
+        if (orderResult.rows.length === 0) {
+            logger.warn(`Заказ #${orderId} не найден для пользователя ${userId}`);
             return res.status(404).send('Заказ не найден');
         }
-        const { shippingAddress } = req.session.pendingOrder;
-        await pool.query(`
-            CALL create_order($1, $2, NULL, NULL)
-        `, [userId, shippingAddress]);
-        const orderResult = await pool.query(`
-            SELECT id
-            FROM orders
-            WHERE user_id = $1
-            ORDER BY created_at DESC
-            LIMIT 1
-        `, [userId]);
-        if (!orderResult.rows[0]) {
-            throw new Error('Не удалось создать заказ');
+
+        if (orderResult.rows[0].status !== 'pending') {
+            logger.warn(`Заказ #${orderId} уже обработан, статус: ${orderResult.rows[0].status}`);
+            return res.status(400).send('Заказ уже обработан');
         }
-        const orderId = orderResult.rows[0].id;
+
+        // Обновляем статус заказа
         await pool.query(`
-            UPDATE orders
+            UPDATE Orders
             SET status = $1, payment_method = $2
             WHERE id = $3
         `, ['completed', 'card', orderId]);
-        const cartItems = req.session.pendingOrder.cartItems;
-        cartItems.forEach(item => {
-            dailyStats.productOrders[item.article] = (dailyStats.productOrders[item.article] || 0) + item.quantity;
+
+        // Получаем элементы заказа для статистики
+        const itemsResult = await pool.query(`
+            SELECT product_article, quantity
+            FROM Order_Items
+            WHERE order_id = $1
+        `, [orderId]);
+
+        // Обновляем статистику
+        itemsResult.rows.forEach(item => {
+            dailyStats.productOrders[item.product_article] = 
+                (dailyStats.productOrders[item.product_article] || 0) + item.quantity;
         });
-        console.log(`Заказ обработан. Текущая статистика: ${JSON.stringify(dailyStats)}`);
         statsLogger.info(dailyStats);
-        delete req.session.pendingOrder;
+
         logger.info(`Заказ #${orderId} оплачен и оформлен пользователем ${userId}`);
         res.redirect('/order-history');
     } catch (err) {
@@ -778,6 +852,35 @@ app.get('/order-history', requireAuth, async (req, res) => {
     } catch (err) {
         logger.error('Ошибка при получении истории заказов: ' + err.stack);
         res.status(500).send('Ошибка сервера');
+    }
+});
+
+// Маршрут для загрузки аватара
+app.post('/profile/avatar', requireAuth, upload.single('avatar'), async (req, res) => {
+    const userId = req.session.userId;
+    try {
+        if (!req.file) {
+            return res.status(400).json({ error: 'Файл не загружен' });
+        }
+
+        // Формируем URL для сохраненного файла
+        const avatarUrl = `/avatars/${req.file.filename}`;
+
+        // Обновляем avatar_url в базе данных
+        await pool.query(`
+            UPDATE Users
+            SET avatar_url = $1
+            WHERE id = $2
+        `, [avatarUrl, userId]);
+
+        // Обновляем данные в сессии
+        req.session.user.avatar_url = avatarUrl;
+
+        logger.info(`Аватар пользователя ${userId} обновлен: ${avatarUrl}`);
+        res.status(200).json({ avatarUrl: avatarUrl });
+    } catch (err) {
+        logger.error('Ошибка при загрузке аватара: ' + err.stack);
+        res.status(500).json({ error: 'Ошибка сервера' });
     }
 });
 

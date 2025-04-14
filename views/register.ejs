@@ -12,9 +12,9 @@
     <div class="background"></div>
 
     <header>
-        <div class="auth-section">
+        <!-- <div class="auth-section">
             <a href="/login">Вход</a>
-        </div>
+        </div> -->
     </header>
 
     <nav class="sidebar">
@@ -49,6 +49,19 @@
                 <div class="form-group">
                     <label for="lastName">Фамилия:</label>
                     <input type="text" id="lastName" name="lastName">
+                </div>
+                <div class="form-group">
+                    <label for="phone">Телефон:</label>
+                    <input type="tel" id="phone" name="phone" pattern="[0-9]{10,15}" placeholder="Например: 1234567890">
+                </div>
+                <div class="form-group">
+                    <label for="birthDate">Дата рождения:</label>
+                    <input type="date" id="birthDate" name="birthDate">
+                </div>
+                <div class="form-group">
+                    <label for="newsletter">
+                        <input type="checkbox" id="newsletter" name="newsletter" checked> Подписаться на рассылку
+                    </label>
                 </div>
                 <button type="submit" class="auth-btn">Зарегистрироваться</button>
             </form>

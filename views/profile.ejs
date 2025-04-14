@@ -39,8 +39,9 @@
         <div class="profile-container">
             <!-- Аватар -->
             <div class="avatar-section">
-                <img src="<%= user.avatar_url || 'https://via.placeholder.com/100x100?text=Avatar' %>" alt="Аватар" class="profile-avatar">
-                <button class="change-avatar-btn">Сменить аватар</button>
+                <img src="<%= user.avatar_url || 'https://via.placeholder.com/100x100?text=Avatar' %>" alt="Аватар" class="profile-avatar" id="profileAvatar">
+                <input type="file" id="avatarInput" name="avatar" accept="image/*" style="display: none;">
+                <button type="button" class="change-avatar-btn" onclick="document.getElementById('avatarInput').click()">Сменить аватар</button>
             </div>
 
             <!-- Форма профиля -->
@@ -139,6 +140,47 @@
         AOS.init({
             duration: 800,
             once: true
+        });
+    </script>
+    <script>
+        // Обработка выбора файла аватара
+        document.getElementById('avatarInput').addEventListener('change', async (event) => {
+            const file = event.target.files[0];
+            if (!file) return;
+    
+            // Проверка типа и размера файла (например, только изображения, до 5 МБ)
+            if (!file.type.startsWith('image/')) {
+                alert('Пожалуйста, выберите изображение');
+                return;
+            }
+            if (file.size > 5 * 1024 * 1024) {
+                alert('Файл слишком большой. Максимальный размер — 5 МБ');
+                return;
+            }
+    
+            const formData = new FormData();
+            formData.append('avatar', file);
+    
+            try {
+                const response = await fetch('/profile/avatar', {
+                    method: 'POST',
+                    body: formData
+                });
+    
+                const result = await response.json();
+                if (response.ok) {
+                    // Обновляем изображение аватара на странице
+                    document.getElementById('profileAvatar').src = result.avatarUrl;
+                    // Обновляем аватар в шапке
+                    document.querySelector('.auth-section .avatar').src = result.avatarUrl;
+                    alert('Аватар успешно обновлен');
+                } else {
+                    alert('Ошибка: ' + result.error);
+                }
+            } catch (error) {
+                console.error('Ошибка при загрузке аватара:', error);
+                alert('Произошла ошибка при загрузке аватара');
+            }
         });
     </script>
 </body>

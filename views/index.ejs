@@ -7,6 +7,7 @@
     <link rel="stylesheet" href="/styles/main.css">
     <link rel="stylesheet" href="/styles/index.css">
     <link rel="stylesheet" href="/styles/chat.css">
+    <link rel="stylesheet" href="/styles/cookies.css">
     <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;700&family=Roboto:wght@300;400&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
     <!-- Подключение AOS для анимаций -->
@@ -28,6 +29,11 @@
             <% } %>
         </div>
     </header>
+
+    <div class="cookie-banner" id="cookieBanner">
+        <p>Мы используем cookies для улучшения работы сайта. Продолжая, вы соглашаетесь с их использованием.</p>
+        <button onclick="acceptCookies()">Согласен</button>
+    </div>
 
     <nav class="sidebar">
         <img src="/logo.png" alt="Логотип АгроМир" class="logo">
@@ -126,6 +132,25 @@
             duration: 800, // Длительность анимации
             once: true // Анимация проигрывается только один раз при прокрутке
         });
+
+        // JavaScript для управления баннером cookies
+        function acceptCookies() {
+            // Устанавливаем cookie на год
+            document.cookie = "cookiesAccepted=true; max-age=31536000; path=/";
+            document.getElementById('cookieBanner').style.display = 'none';
+        }
+
+        // Проверяем, есть ли cookie согласия
+        function checkCookies() {
+            if (document.cookie.includes('cookiesAccepted=true')) {
+                document.getElementById('cookieBanner').style.display = 'none';
+            } else {
+                document.getElementById('cookieBanner').style.display = 'block';
+            }
+        }
+
+        // Вызываем проверку при загрузке страницы
+        window.onload = checkCookies;
     </script>
 </body>
 </html>
