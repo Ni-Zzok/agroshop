@@ -696,6 +696,7 @@ app.post('/checkout', requireAuth, async (req, res) => {
     const { shippingAddress } = req.body;
     const userId = req.session.userId;
     try {
+        logger.info(`Получение корзины для userId=${userId}`);
         const cartResult = await pool.query(`
             SELECT c.id, c.quantity, p.article, p.name, p.price, p.image_url, p.stock
             FROM Cart c
@@ -703,43 +704,43 @@ app.post('/checkout', requireAuth, async (req, res) => {
             WHERE c.user_id = $1
         `, [userId]);
         if (cartResult.rows.length === 0) {
+            logger.info('Корзина пуста, редирект на /cart');
             return res.redirect('/cart');
         }
+        logger.info(`Проверка наличия товаров: ${JSON.stringify(cartResult.rows)}`);
         for (const item of cartResult.rows) {
             if (item.quantity > item.stock) {
+                logger.warn(`Недостаточно товара: ${item.name} (арт. ${item.article}), запрошено: ${item.quantity}, в наличии: ${item.stock}`);
                 return res.status(400).send(`Товара "${item.name}" (арт. ${item.article}) недостаточно на складе. В наличии: ${item.stock} шт.`);
             }
         }
         const totalPrice = cartResult.rows.reduce((sum, item) => sum + item.price * item.quantity, 0);
-
-        // Создаем заказ в базе данных
+        logger.info(`Создание заказа с totalPrice=${totalPrice}, shippingAddress=${shippingAddress}`);
         const orderResult = await pool.query(`
             INSERT INTO Orders (user_id, total_price, status, shipping_address, payment_method, created_at)
             VALUES ($1, $2, $3, $4, $5, NOW())
             RETURNING id
         `, [userId, totalPrice, 'pending', shippingAddress, 'pending_payment']);
         const orderId = orderResult.rows[0].id;
-
-        // Добавляем элементы заказа
+        logger.info(`Заказ создан, orderId=${orderId}`);
         for (const item of cartResult.rows) {
+            logger.info(`Добавление элемента заказа: article=${item.article}, quantity=${item.quantity}`);
             await pool.query(`
                 INSERT INTO Order_Items (order_id, quantity, price_at_time, product_article)
                 VALUES ($1, $2, $3, $4)
             `, [orderId, item.quantity, item.price, item.article]);
-            // Обновляем склад
+            logger.info(`Обновление склада для article=${item.article}, уменьшение на ${item.quantity}`);
             await pool.query(`
                 UPDATE Products
                 SET stock = stock - $1
                 WHERE article = $2
             `, [item.quantity, item.article]);
         }
-
-        // Очищаем корзину
+        logger.info(`Очистка корзины для userId=${userId}`);
         await pool.query(`
             DELETE FROM Cart
             WHERE user_id = $1
         `, [userId]);
-
         logger.info(`Заказ #${orderId} создан для пользователя ${userId}`);
         res.redirect(`/payment/${orderId}`);
     } catch (err) {
@@ -1418,6 +1419,7 @@ app.post('/admin/:table/delete', requireAdmin, async (req, res) => {
 });
 
 // Маршрут статистики продаж
+// Маршрут статистики продаж
 app.get('/admin/sales-stats', requireAdmin, async (req, res) => {
     try {
         const totalRevenue = await pool.query(`
@@ -1478,6 +1480,26 @@ app.get('/admin/sales-stats', requireAdmin, async (req, res) => {
             GROUP BY DATE_TRUNC('month', created_at)
             ORDER BY sale_month
         `);
+
+        // Подготовка данных о продажах по товарам за день
+        const dailyProductSales = [];
+        for (const [article, quantity] of Object.entries(dailyStats.productOrders)) {
+            const productResult = await pool.query(`
+                SELECT article, name
+                FROM Products
+                WHERE article = $1
+            `, [article]);
+            if (productResult.rows.length > 0) {
+                dailyProductSales.push({
+                    article: productResult.rows[0].article,
+                    name: productResult.rows[0].name,
+                    quantity: quantity
+                });
+            }
+        }
+        // Сортируем по количеству продаж (по убыванию)
+        dailyProductSales.sort((a, b) => b.quantity - a.quantity);
+
         res.render('sales-stats', {
             user: req.session.user,
             totalRevenue: totalRevenueValue,
@@ -1487,7 +1509,9 @@ app.get('/admin/sales-stats', requireAdmin, async (req, res) => {
             topProducts: topProducts.rows,
             orderStats: orderStats.rows,
             salesByDay: salesByDay.rows,
-            salesByMonth: salesByMonth.rows
+            salesByMonth: salesByMonth.rows,
+            dailyVisits: dailyStats.visits,
+            dailyProductSales: dailyProductSales // Добавляем статистику продаж по товарам
         });
     } catch (err) {
         logger.error('Ошибка при загрузке страницы статистики продаж: ' + err.stack);

@@ -47,7 +47,7 @@
     <div class="content">
         <h2 style="font-family: 'Playfair Display', serif; color: #3c6f3c;">Статистика продаж</h2>
 
-        <!-- Общая выручка -->
+        <!-- Общая выручка и посещения -->
         <div class="stats-grid">
             <div class="stats-card">
                 <h3>Общая выручка</h3>
@@ -64,6 +64,10 @@
             <div class="stats-card">
                 <h3>Выручка за месяц</h3>
                 <p><%= monthRevenue.toFixed(2) %> руб.</p>
+            </div>
+            <div class="stats-card">
+                <h3>Посещения за день</h3>
+                <p><%= dailyVisits %></p>
             </div>
         </div>
 
@@ -91,6 +95,33 @@
                 </table>
             <% } else { %>
                 <p>Нет данных о продажах.</p>
+            <% } %>
+        </div>
+
+        <!-- Продажи по товарам за день -->
+        <div class="stats-card">
+            <h3>Продажи по товарам за день</h3>
+            <% if (dailyProductSales.length > 0) { %>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Артикул</th>
+                            <th>Название</th>
+                            <th>Продано (шт.)</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <% dailyProductSales.forEach(sale => { %>
+                            <tr>
+                                <td><%= sale.article %></td>
+                                <td><%= sale.name %></td>
+                                <td><%= sale.quantity %></td>
+                            </tr>
+                        <% }) %>
+                    </tbody>
+                </table>
+            <% } else { %>
+                <p>Нет продаж за текущий день.</p>
             <% } %>
         </div>
 
@@ -138,14 +169,13 @@
 
     <!-- Подвал -->
     <footer>
-        <p>&copy; 2025 AgroShop. Все права защищены.</p>
+        <p>© 2025 AgroShop. Все права защищены.</p>
         <div class="social-links">
             <a href="https://instagram.com" target="_blank"><i class="fab fa-instagram"></i></a>
             <a href="https://t.me" target="_blank"><i class="fab fa-telegram"></i></a>
             <a href="https://vk.com" target="_blank"><i class="fab fa-vk"></i></a>
         </div>
     </footer>
-    
 
     <!-- Скрипт для графиков -->
     <script>

@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ошибка - AgroShop</title>
+    <link rel="stylesheet" href="/styles/main.css">
+</head>
+<body>
+    <div class="background"></div>
+    <header>
+        <div class="auth-section">
+            <% if (user) { %>
+                <div class="user-profile">
+                    <img src="<%= user.avatar_url || '/images/default-avatar.png' %>" alt="Avatar" class="avatar">
+                    <span><%= user.first_name %> <%= user.last_name %></span>
+                    <button class="logout-btn" onclick="window.location.href='/logout'">Выйти</button>
+                </div>
+            <% } else { %>
+                <div class="auth-buttons">
+                    <button class="auth-btn" onclick="window.location.href='/login'">Войти</button>
+                    <button class="auth-btn" onclick="window.location.href='/register'">Регистрация</button>
+                </div>
+            <% } %>
+        </div>
+    </header>
+    <div class="sidebar">
+        <img src="/logo.png" alt="AgroShop Logo" class="logo">
+        <ul>
+            <li><a href="/">Главная</a></li>
+            <li><a href="/catalog">Каталог товаров</a></li>
+            <li><a href="/cart">Корзина</a></li>
+            <li><a href="/profile">Личный кабинет</a></li>
+            <li><a href="/admin">Админская панель</a></li>
+            <li><a href="/admin/sales-stats">Статистика продаж</a></li>
+        </ul>
+    </div>
+    <div class="content">
+        <h2>Ошибка</h2>
+        <p><%= message %></p>
+        <a href="/">Вернуться на главную</a>
+    </div>
+    <footer>
+        <p>© 2025 AgroShop. Все права защищены.</p>
+    </footer>
+</body>
+</html>
