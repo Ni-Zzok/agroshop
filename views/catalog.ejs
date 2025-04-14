@@ -103,6 +103,7 @@
                             <p class="stock">В наличии: <%= product.stock %> шт.</p>
                             <form action="/cart/add" method="POST" class="add-to-cart-form">
                                 <input type="hidden" name="article" value="<%= product.article %>">
+                                <input type="number" name="quantity" value="1" min="1" max="<%= product.stock %>" required style="display: none;">
                                 <button type="submit" class="add-to-cart-btn">Добавить в корзину</button>
                             </form>
                         </div>
